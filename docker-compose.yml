@@ -1,0 +1,12 @@
+services:
+  cpr-shiny:
+    build: .
+    image: cpr-shiny
+    ports:
+      - "3838:3838"
+    volumes:
+      - shiny-logs:/var/log/shiny-server
+    restart: unless-stopped
+
+volumes:
+  shiny-logs:

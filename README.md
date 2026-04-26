@@ -1,75 +1,106 @@
 # cp-R Shiny
 
 A Shiny web-application port of **cp-R 0.4** (Chemical Pathology R),
-originally a PyQt4 desktop app by Dr. Daniel T. Holmes, MD.
+originally a PyQt4 desktop application by Dr. Daniel T. Holmes, MD.
 
-## What was migrated
+## Features
 
-| Original (PyQt4)             | Shiny equivalent                                  |
-|------------------------------|---------------------------------------------------|
-| `QTableWidget` (1 000 rows)  | `rhandsontable` — fully interactive, sortable     |
-| Clipboard paste button       | Modal dialog with text-area paste                 |
-| Radio/checkbox controls      | `radioButtons` / `checkboxInput`                  |
-| QLabel image preview         | Base64-encoded `<img>` rendered in `uiOutput`     |
-| Previous / Next plot buttons | Reactive index cycling through preview list       |
-| Plain-text stats box         | `verbatimTextOutput`                              |
-| File → Save Images           | `downloadButton` (saves current preview)          |
+- **Least Squares**, **Passing-Bablok**, and **Deming** regression methods
+- **Bland-Altman** difference plot
+- Interactive **plotly** widgets with per-point tooltips showing data-table row numbers
+- Static image downloads in JPG, PNG, TIFF, BMP, PDF, and PS formats
+- Fully interactive data entry via `rhandsontable` (paste from spreadsheet, sort, insert/delete rows)
 
-The **R scripts are kept exactly as-is**:
+## R Package Dependencies
 
-- `Rdata/linear_regression.R`
-- `Rdata/PB_regression.R`
-- `Rdata/Deming_regression.R`
-- `Rdata/BA_plot.R`
+### Shiny app (`app.R`)
+| Package | Purpose |
+|---|---|
+| `shiny` | Web framework |
+| `rhandsontable` | Interactive data-entry grid |
+| `shinyjs` | JS helpers |
+| `jsonlite` | Colour list serialisation |
+| `base64enc` | Static plot preview encoding |
 
-They are invoked via `R CMD BATCH` exactly as the original Python code did.
+### R scripts (`Rdata/`)
+| Package | Purpose |
+|---|---|
+| `ggplot2` | Plot construction |
+| `plotly` | Interactive widget rendering |
+| `htmlwidgets` | Self-contained HTML widget export |
+| `boot` | Bootstrap CIs (Passing-Bablok, Deming) |
+| `compiler` | JIT compilation of PB inner loop (base R — no install needed) |
 
-## Prerequisites
+All packages are auto-installed on first run if missing.
 
-- R ≥ 4.0
-- The following CRAN packages (auto-installed on first run):
-  `shiny`, `rhandsontable`, `shinyjs`, `base64enc`
-- The original R scripts also require: `car`, `calibrate`, `boot`, `compiler`
-  (auto-installed by the scripts themselves).
-
-## Running
+## Running locally
 
 ```r
-# From within R or RStudio:
+# From R or RStudio:
 shiny::runApp("path/to/cpr-shiny")
 ```
 
-Or from the terminal:
-
 ```bash
+# From the terminal:
 Rscript -e "shiny::runApp('cpr-shiny')"
+```
+
+## Docker deployment
+
+### Build
+```bash
+docker build -t cpr-shiny .
+```
+
+### Run
+```bash
+docker run --rm -p 3838:3838 cpr-shiny
+```
+
+Then open **http://localhost:3838** in your browser.
+
+### Run with persistent logs
+```bash
+docker run --rm -p 3838:3838 \
+  -v /path/to/logs:/var/log/shiny-server \
+  cpr-shiny
+```
+
+### Docker Compose
+```yaml
+services:
+  cpr-shiny:
+    build: .
+    ports:
+      - "3838:3838"
+    restart: unless-stopped
+```
+
+## Cloud deployment (shinyapps.io)
+
+```r
+library(rsconnect)
+rsconnect::deployApp("path/to/cpr-shiny")
 ```
 
 ## Directory layout
 
 ```
 cpr-shiny/
-├── app.R          ← Shiny UI + server (this file replaces the PyQt .py)
+├── app.R                     <- Shiny UI + server
+├── Dockerfile                <- Docker build definition
 ├── README.md
 └── Rdata/
-    ├── linear_regression.R   ← unchanged from original
-    ├── PB_regression.R       ← unchanged from original
-    ├── Deming_regression.R   ← unchanged from original
-    └── BA_plot.R             ← unchanged from original
+    ├── linear_regression.R   <- Least Squares regression
+    ├── PB_regression.R       <- Passing-Bablok regression
+    ├── Deming_regression.R   <- Deming regression
+    └── BA_plot.R             <- Bland-Altman difference plot
 ```
 
-## Key feature: rhandsontable
-
-The data-entry grid uses `rhandsontable`, which gives you:
-
-- Click-to-edit individual cells
-- Right-click context menu (copy, paste, insert row, delete row)
-- Column sorting by clicking a header
-- Paste directly from Excel / Numbers / LibreOffice into the grid
-  (select the top-left cell and Ctrl+V / Cmd+V)
-- The **Paste Data** button also works via a modal dialog for
-  systems where direct clipboard access isn't available.
+Each R script is invoked as an isolated `Rscript` subprocess — environment
+variables from the Shiny session are not inherited, which ensures reproducible
+behaviour on multi-user servers.
 
 ## License
 
-GNU GPL v3 — see `gpl-3.0_license.pdf` in the original distribution.
+GNU GPL v3 — see `gpl-3.0_license.pdf` in the original cp-R distribution.
