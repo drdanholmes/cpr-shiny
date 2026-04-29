@@ -16,13 +16,12 @@
 
 #Deming Regression Script
 #add packages if not already installed
-list.of.packages <- c("car", "calibrate","boot","ggplot2","plotly","htmlwidgets")
-#suppress tcltk because of Macs
+list.of.packages <- c("car","boot","ggplot2","plotly","htmlwidgets")
+
 options(menu.graphics=FALSE)
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages,repos='http://cran.us.r-project.org')
 library("car")
-library("calibrate")
 library("boot")
 library("ggplot2")
 library("plotly")

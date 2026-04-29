@@ -5,7 +5,7 @@ account: dtholmes
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 17223086
-bundleId: 11921447
+bundleId: 11921586
 url: https://dtholmes.shinyapps.io/cpr-shiny/
 version: 1
 asMultiple: FALSE
