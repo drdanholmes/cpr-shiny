@@ -156,14 +156,13 @@ jpeg(file.path(tmpdir, "previews", "A.jpg"),
 reg <- plot.graph(my.data$x, my.data$y, w, pp)
 dev.off()
 
-for (fmt in c("jpg","png","tiff","bmp","pdf","ps")) {
-  path <- file.path(tmpdir, "plots", paste0("plot.", fmt))
-  tryCatch({
-    open_device(fmt, path, pp)
-    plot.graph(my.data$x, my.data$y, w, pp)
-    dev.off()
-  }, error = function(e) { try(dev.off(), silent = TRUE) })
-}
+fmt  <- as.character(pp$plot_type)
+path <- file.path(tmpdir, "plots", paste0("plot.", fmt))
+tryCatch({
+  open_device(fmt, path, pp)
+  plot.graph(my.data$x, my.data$y, w, pp)
+  dev.off()
+}, error = function(e) { try(dev.off(), silent = TRUE) })
 
 resid <- sqrt(w) * reg$resid
 

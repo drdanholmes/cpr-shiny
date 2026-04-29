@@ -197,13 +197,12 @@ jpeg(file.path(tmpdir, "previews", "A.jpg"),
 ci_band <- plot.graph(my.data[,1:2], R, n.fit, alpha, pp, reg)
 dev.off()
 
-for (fmt in c("jpg","png","tiff","bmp","pdf","ps")) {
-  tryCatch({
-    open_device(fmt, file.path(tmpdir,"plots",paste0("plot.",fmt)), pp)
-    plot.graph(my.data[,1:2], R, n.fit, alpha, pp, reg)
-    dev.off()
-  }, error = function(e) { try(dev.off(), silent=TRUE) })
-}
+fmt <- as.character(pp$plot_type)
+tryCatch({
+  open_device(fmt, file.path(tmpdir,"plots",paste0("plot.",fmt)), pp)
+  plot.graph(my.data[,1:2], R, n.fit, alpha, pp, reg)
+  dev.off()
+}, error = function(e) { try(dev.off(), silent=TRUE) })
 
 # ── Statistical summary ───────────────────────────────────────────────────────
 n       <- nrow(my.data)

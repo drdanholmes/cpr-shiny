@@ -138,14 +138,12 @@ jpeg(file.path(tmpdir,"previews","B.jpg"),
 BA <- BA.plot(x, y)
 dev.off()
 
-for (fmt in c("jpg","png","tiff","bmp","pdf","ps")) {
-  tryCatch({
-    open_device(fmt, file.path(tmpdir,"plots",paste0("BA_plot.",fmt)),
-                my_width, my_height, my_dpi, my_point)
-    BA.plot(x, y)
-    dev.off()
-  }, error = function(e) { try(dev.off(), silent=TRUE) })
-}
+tryCatch({
+  open_device(plot_type, file.path(tmpdir,"plots",paste0("BA_plot.",plot_type)),
+              my_width, my_height, my_dpi, my_point)
+  BA.plot(x, y)
+  dev.off()
+}, error = function(e) { try(dev.off(), silent=TRUE) })
 
 # ── Write BA statistics once ──────────────────────────────────────────────────
 sf <- file.path(tmpdir,"plots","stats_output.txt")
