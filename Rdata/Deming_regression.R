@@ -16,12 +16,11 @@
 
 #Deming Regression Script
 #add packages if not already installed
-list.of.packages <- c("car","boot","ggplot2","plotly","htmlwidgets")
+list.of.packages <- c("boot","ggplot2","plotly","htmlwidgets")
 
 options(menu.graphics=FALSE)
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages,repos='http://cran.us.r-project.org')
-library("car")
 library("boot")
 library("ggplot2")
 library("plotly")
@@ -116,9 +115,9 @@ Deming.boot<-function(data,delta,R,n.fit,alpha,xmin,xmax){
 # A couple of functions for converting percent opacity to colour hex codes
 addazero<-function(rgbvalue){
     if(nchar(rgbvalue)==1){
-    rgbvalue<-sprintf("0%s",rgbvalue)  
+    rgbvalue<-sprintf("0%s",rgbvalue)
     }
-    return(rgbvalue)    
+    return(rgbvalue)
 }
 
 col2hex<-function(colorname){
@@ -136,7 +135,7 @@ col2hex<-function(colorname){
     return(hexcolstring)
 }
 
-#Draw the regression and the Bland Altman plot
+#Draw the regression plot
 plot.graph<-function(data,R,n.fit,alpha,pp){
     #Perform the regression
     reg<-Deming.reg(data=data,delta=pp$delta,alpha=alpha)
@@ -147,7 +146,7 @@ plot.graph<-function(data,R,n.fit,alpha,pp){
     w<-data[,3]
     Xhat<-data[,4]
     Yhat<-data[,5]
-    
+
     plot(x,y,pch=pp$my_pch,cex=pp$my_cex,col=as.character(pp$my_point_col),bg=as.character(pp$my_bg),lty=pp$my_lty,lwd=pp$my_lwd,
     xlim=c(pp$xmin,pp$xmax),ylim=c(pp$ymin,pp$ymax),xlab=as.character(pp$my_xlab),ylab=as.character(pp$my_ylab),
     main=as.character(pp$my_main))
@@ -227,7 +226,7 @@ plot.graph<-function(data,R,n.fit,alpha,pp){
         if (pp$weighting==TRUE){
 			text(legend.location.3[1],legend.location.3[2],"Method: Deming, weighted",adj=c(0,0))
 		}else{
-			text(legend.location.3[1],legend.location.3[2],"Method: Deming",adj=c(0,0))		
+			text(legend.location.3[1],legend.location.3[2],"Method: Deming",adj=c(0,0))
 		}
     }else if(pp$plot_regression&pp$plot_rsquared){
         text(legend.location.1[1],legend.location.1[2],equation,adj=c(0,0))
@@ -241,7 +240,7 @@ plot.graph<-function(data,R,n.fit,alpha,pp){
 		}
     }else if (pp$plot_rsquared&pp$plot_method){
         text(legend.location.1[1],legend.location.1[2],rsquared.equation,adj=c(0,0))
-		if (pp$weighting==TRUE){        
+		if (pp$weighting==TRUE){
 			text(legend.location.2[1],legend.location.2[2],"Method: Deming, weighted",adj=c(0,0))
 		}else{
 			text(legend.location.2[1],legend.location.2[2],"Method: Deming",adj=c(0,0))
@@ -251,70 +250,13 @@ plot.graph<-function(data,R,n.fit,alpha,pp){
     }else if(pp$plot_regression){
         text(legend.location.1[1],legend.location.1[2],equation,adj=c(0,0))
  	}else if(pp$plot_method){
-		if (pp$weighting==TRUE){     
+		if (pp$weighting==TRUE){
 			text(legend.location.1[1],legend.location.1[2],"Method: Deming,weighted",adj=c(0,0))
 		}else{
-			text(legend.location.2[1],legend.location.2[2],"Method: Deming",adj=c(0,0))		
+			text(legend.location.2[1],legend.location.2[2],"Method: Deming",adj=c(0,0))
 		}
     }
     return(reg.list)
-}
-
-plot.resid<-function(fitted,resid,pp){
-    #convert tranparency percent to 0-255 scale
-    confidence_transp<-round((pp$confidence_transp*2.55),0)
-    #convert transparency to hexidecimal
-    class(confidence_transp)<-"hexmode"
-    cftrans<-addazero(as.character(confidence_transp))
-    cfcol<-col2hex(as.character(pp$confidence_fill_col))
-    cffill<-paste(cfcol,cftrans,sep="")
-    #define the plot region
-    par(mfrow=c(1,2))
-    resid.bar<-mean(resid)
-    resid.sd<-sd(resid)
-    z.score<-(resid-resid.bar)/resid.sd
-    if(pp$weighting==TRUE){
-		title.hist<-"Histogram of Weighted Residuals"
-    }else{
-		title.hist<-"Histogram of Residuals"
-    }
-    hist(z.score,breaks=10,main=title.hist,xlab="Standardized Residuals",col=as.character(cffill),prob=TRUE)
-    lines(density(z.score),col=as.character(pp$my_lincol),lwd=pp$my_lwd)
-    if(pp$weighting==TRUE){
-		title.resid<-"Weighted Residuals Plot"
-    }else{
-		title.resid<-"Residuals Plot"
-    }  
-    plot(fitted$Xhat,z.score,ylim=c(-3*sd(z.score),3*sd(z.score)),xlab="Fitted Values",
-    ylab="Standardized Residuals",main=title.resid,pch=pp$my_pch,bg=as.character(pp$my_bg),
-    col=as.character(pp$my_point_col),cex=pp$my_cex)
-    abline(h=mean(z.score),col=as.character(pp$my_lincol),lwd=as.character(pp$my_lwd))
-    if(pp$plot_confidence){
-        vx<-c(-2,-2,2,2)*max(abs(fitted$Xhat))
-        vy<-c(-1.96,1.96,1.96,-1.96)*sd(z.score)
-        polygon(vx,vy,fillOddEven=FALSE,col=cffill,border=NA)
-        points(fitted$Xhat,z.score,ylim=c(-max(abs(z.score)),max(abs(z.score))),lwd=pp$my_lwd,pch=pp$my_pch,
-        bg=as.character(pp$my_bg),col=as.character(pp$my_point_col),cex=pp$my_cex)
-    }
-    if(pp$plot_conf_outline){
-    abline(h=(mean(z.score)+1.96*sd(z.score)),lty=2,col=as.character(pp$conf_col),lwd=as.character(pp$my_lwd))
-    abline(h=(mean(z.score)-1.96*sd(z.score)),lty=2,col=as.character(pp$conf_col),lwd=as.character(pp$my_lwd))
-    }
-    par(mfrow=c(1,1))
-}
-
-plot.qq<-function(resid,pp){
-        #this is a bit of a work-around to make something that fits the aesthetic theme of the plots
-        qqdata<-qqnorm(reg$resid,plot.it=FALSE)
-		if(pp$weighting==TRUE){
-			title.qq<-"QQ Plot of Weighted Residuals"
-		}else{
-			title.qq<-"QQ Plot of Residuals"
-		}  
-        qqPlot(reg$resid,main=title.qq,ylab="Residuals",xlab="Normal Quantiles",
-        col=as.character(pp$my_point_col),col.lines=as.character(pp$my_lincol),pch=pp$my_pch,cex=pp$my_cex,lwd=pp$my_lwd)
-        points(qqdata$x,qqdata$y,col=as.character(pp$my_point_col),pch=pp$my_pch,cex=pp$my_cex,bg=as.character(pp$my_bg),lwd=pp$my_lwd)
-        qqline(reg$resid,col=as.character(pp$my_lincol),lwd=pp$my_lwd)
 }
 
 #-----Program starts here-----#
@@ -371,174 +313,46 @@ w<-weight.calculator(data=my.data,delta=pp$delta,weighting=pp$weighting)
 my.data<-data.frame(my.data,w)
 
 
-if(Sys.info()['sysname'] == 'Windows'|Sys.info()['sysname'] == 'Linux'){
-	#Create the preview plot(s)
-	jpeg(paste(tmpdir,"/previews/A.jpg",sep=""),width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult, units="in", res=pp$my_dpi)
+#Create the preview plot
+jpeg(paste(tmpdir,"/previews/A.jpg",sep=""),width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult, units="in", res=pp$my_dpi)
+reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
+dev.off()
+
+#Output jpeg
+if(pp$plot_type=="jpg"){
+	jpeg(paste(tmpdir,"/plots/plot.jpg",sep=""),width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult, units="in", res=pp$my_dpi)
 	reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
 	dev.off()
 
-	jpeg(paste(tmpdir,"/previews/C.jpg",sep=""),width=pp$my_width,height=pp$my_height,
-	pointsize=pp$font_mult,units="in", res=pp$my_dpi)
-	plot.qq(reg$resid,pp)
-	dev.off()
-
-	jpeg(paste(tmpdir,"/previews/D.jpg",sep=""),width=1.5*pp$my_width,height=pp$my_height,
-	pointsize=pp$font_mult,units="in", res=pp$my_dpi)
-	plot.resid(reg$fitted,reg$resid,pp)
-	dev.off()
-  
-	#Output jpeg
-	if(pp$plot_type=="jpg"){
-		jpeg(paste(tmpdir,"/plots/plot.jpg",sep=""),width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult, units="in", res=pp$my_dpi)
-		reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
-		dev.off()
-
-		jpeg(paste(tmpdir,"/plots/qq_plot.jpg",sep=""),width=pp$my_width,height=pp$my_height,
-		pointsize=pp$font_mult,units="in", res=pp$my_dpi)
-		plot.qq(reg$resid,pp)
-		dev.off()
-
-
-		jpeg(paste(tmpdir,"/plots/hist.jpg",sep=""),width=1.5*pp$my_width,height=pp$my_height,
-		pointsize=pp$font_mult,units="in", res=pp$my_dpi)
-		plot.resid(reg$fitted,reg$resid,pp)
-		dev.off()
-
-		reg
-  
-	#Output png
-	}else if(pp$plot_type=="png"){
-		png(paste(tmpdir,"/plots/plot.png",sep=""),width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult, units="in", res=pp$my_dpi)
-		reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
-		dev.off()
-
-		png(paste(tmpdir,"/plots/qq_plot.png",sep=""),width=pp$my_width,height=pp$my_height,
-		pointsize=pp$font_mult,units="in", res=pp$my_dpi)
-		plot.qq(reg$resid,pp)
-		dev.off()
-
-		png(paste(tmpdir,"/plots/hist.png",sep=""),width=1.5*pp$my_width,height=pp$my_height,
-		pointsize=pp$font_mult,units="in", res=pp$my_dpi)
-		plot.resid(reg$fitted,reg$resid,pp)
-		dev.off()
-
-		reg
-  
-	#Output tiff
-	}else if(pp$plot_type=="tiff"){
-		tiff(paste(tmpdir,"/plots/plot.tiff",sep=""),width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult, units="in", res=pp$my_dpi)
-		reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
-		dev.off()
-
-		tiff(paste(tmpdir,"/plots/qq_plot.tiff",sep=""),width=pp$my_width,height=pp$my_height,
-		pointsize=pp$font_mult,units="in", res=pp$my_dpi)
-		plot.qq(reg$resid,pp)
-		dev.off()
-
-		tiff(paste(tmpdir,"/plots/hist.tiff",sep=""),width=1.5*pp$my_width,height=pp$my_height,
-		pointsize=pp$font_mult,units="in", res=pp$my_dpi)
-		plot.resid(reg$fitted,reg$resid,pp)
-		dev.off()
-
-		reg
-  
-	#Output bmp
-	}else if(pp$plot_type=="bmp"){
-		bmp(paste(tmpdir,"/plots/plot.bmp",sep=""),width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult, units="in", res=pp$my_dpi)
-		reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
-		dev.off()
-
-		bmp(paste(tmpdir,"/plots/qq_plot.bmp",sep=""),width=pp$my_width,height=pp$my_height,
-		pointsize=pp$font_mult,units="in", res=pp$my_dpi)
-		plot.qq(reg$resid,pp)
-		dev.off()
-
-		bmp(paste(tmpdir,"/plots/hist.bmp",sep=""),width=1.5*pp$my_width,height=pp$my_height,
-		pointsize=pp$font_mult,units="in", res=pp$my_dpi)
-		plot.resid(reg$fitted,reg$resid,pp)
-		dev.off()
-
-		reg
-  
-	#Output pdf
-	}else if(pp$plot_type=="pdf"){
-		pdf(paste(tmpdir,"/plots/plot.pdf",sep=""),width=pp$my_width,height=pp$my_height,pointsize=pp$font_mult)
-		reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
-		dev.off()
-
-		pdf(paste(tmpdir,"/plots/qq_plot.pdf",sep=""),width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult)
-		plot.qq(reg$resid,pp)
-		dev.off()
-
-		pdf(paste(tmpdir,"/plots/hist.pdf",sep=""),width=1.5*pp$my_width,height=pp$my_height, pointsize=pp$font_mult)
-		plot.resid(reg$fitted,reg$resid,pp)
-		dev.off()
-
-		reg
-  
-	#Output ps
-	}else if(pp$plot_type=="ps"){
-		cairo_ps(paste(tmpdir,"/plots/plot.ps",sep=""),width=pp$my_width,height=pp$my_height,pointsize=pp$font_mult)
-		reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
-		dev.off()
-
-		cairo_ps(paste(tmpdir,"/plots/qq_plot.ps",sep=""),width=pp$my_width,height=pp$my_height,
-		pointsize=pp$font_mult)
-		plot.qq(reg$resid,pp)
-		dev.off()
-
-		cairo_ps(paste(tmpdir,"/plots/hist.ps",sep=""),width=1.5*pp$my_width,height=pp$my_height,
-		pointsize=pp$font_mult)
-		plot.resid(reg$fitted,reg$resid,pp)
-		dev.off()
-		
-		reg
-	}
-
-}else{
-	#It's Mac
-	quartz(file=paste(tmpdir,"/previews/A.jpg",sep=""),type="jpg",width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult, dpi=pp$my_dpi)
+#Output png
+}else if(pp$plot_type=="png"){
+	png(paste(tmpdir,"/plots/plot.png",sep=""),width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult, units="in", res=pp$my_dpi)
 	reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
 	dev.off()
 
-	#By deafault R calculates the unweighted residuals and rse. I will report the weighted values.
-	resid<-sqrt(w)*reg$resid
-
-	quartz(file=paste(tmpdir,"/previews/C.jpg",sep=""),type="jpg",width=pp$my_width,height=pp$my_height, 
-		 pointsize=pp$font_mult, dpi=pp$my_dpi)    
-	plot.qq(reg$resid,pp)
+#Output tiff
+}else if(pp$plot_type=="tiff"){
+	tiff(paste(tmpdir,"/plots/plot.tiff",sep=""),width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult, units="in", res=pp$my_dpi)
+	reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
 	dev.off()
 
-	quartz(file=paste(tmpdir,"/previews/D.jpg",sep=""),type="jpg",width=1.5*pp$my_width,height=pp$my_height,
-		 pointsize=pp$font_mult, dpi=pp$my_dpi,bg="white")    
-	plot.resid(reg$fitted,reg$resid,pp)
-	dev.off()     
-	#create finalized plots
-	if(pp$plot_type=="ps"){
-        cairo_ps(file=paste(tmpdir,"/plots/plot.ps",sep=""),width=pp$my_width,height=pp$my_height,pointsize=pp$font_mult,bg="white")
-		reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
-		dev.off()
+#Output bmp
+}else if(pp$plot_type=="bmp"){
+	bmp(paste(tmpdir,"/plots/plot.bmp",sep=""),width=pp$my_width,height=pp$my_height, pointsize=pp$font_mult, units="in", res=pp$my_dpi)
+	reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
+	dev.off()
 
-		cairo_ps(file=paste(tmpdir,"/plots/qq_plot.ps",sep=""),width=pp$my_width,height=pp$my_height,pointsize=pp$font_mult,bg="white")
-		plot.qq(resid,pp)
-		dev.off()
+#Output pdf
+}else if(pp$plot_type=="pdf"){
+	pdf(paste(tmpdir,"/plots/plot.pdf",sep=""),width=pp$my_width,height=pp$my_height,pointsize=pp$font_mult)
+	reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
+	dev.off()
 
-		cairo_ps(file=paste(tmpdir,"/plots/hist.ps",sep=""),width=pp$my_width,height=pp$my_height,pointsize=pp$font_mult,bg="white")
-		plot.resid(reg$fitted,reg$resid,pp)
-		dev.off()		
-	}else{
-		quartz(file=paste(tmpdir,"/plots/plot.",pp$plot_type,sep=""),type=as.character(pp$plot_type),width=pp$my_width,height=pp$my_height, dpi=pp$my_dpi,pointsize=pp$font_mult,bg="white")
-		reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
-		dev.off()
-
-		quartz(file=paste(tmpdir,"/plots/qq_plot.",pp$plot_type,sep=""),type=as.character(pp$plot_type),width=pp$my_width,height=pp$my_height, dpi=pp$my_dpi,pointsize=pp$font_mult,bg="white")
-		plot.qq(resid,pp)
-		dev.off()
-
-		quartz(file=paste(tmpdir,"/plots/hist.",pp$plot_type,sep=""),type=as.character(pp$plot_type),width=pp$my_width,height=pp$my_height, dpi=pp$my_dpi,pointsize=pp$font_mult,bg="white")
-		plot.resid(reg$fitted,reg$resid,pp)
-		dev.off()
-	}
+#Output ps
+}else if(pp$plot_type=="ps"){
+	cairo_ps(paste(tmpdir,"/plots/plot.ps",sep=""),width=pp$my_width,height=pp$my_height,pointsize=pp$font_mult)
+	reg<-plot.graph(data=my.data,R=R,n.fit=n.fit,alpha=alpha,pp=pp)
+	dev.off()
 }
 
 #Write Statistical Summary to a text file
