@@ -74,10 +74,11 @@ PB.reg <- function(data, alpha, indices) {
   S  <- numeric(choose(lx, 2))
   for (i in seq_len(lx - 1))
     for (j in (i + 1):lx)
-      if (!(y[i] == y[j] && x[i] < x[j])) {
+      if (x[i] != x[j] && !(y[i] == y[j] && x[i] < x[j])) {
         k    <- k + 1L
         S[k] <- (y[i] - y[j]) / (x[i] - x[j])
       }
+  if (k == 0L) return(c(NA_real_, NA_real_))
   S  <- sort(S[seq_len(k)])
   N  <- length(S)
   K  <- sum(S < 0) %/% 2L
@@ -90,7 +91,8 @@ PB.reg.comp <- cmpfun(PB.reg)
 
 PB.boot.band <- function(data, R, n.fit, alpha, xmin, xmax) {
   br   <- boot(data = data, alpha = alpha, statistic = PB.reg.comp, R = R)
-  av   <- br$t[, 1]; bv <- br$t[, 2]
+  ok   <- complete.cases(br$t)
+  av   <- br$t[ok, 1]; bv <- br$t[ok, 2]
   xs   <- seq(xmin - 0.1*abs(xmax - xmin), xmax + 0.1*abs(xmax - xmin),
               length.out = n.fit)
   # Vectorised: outer product avoids a loop over n.fit points

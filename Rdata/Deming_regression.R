@@ -88,6 +88,9 @@ weight.calculator <- function(data, delta, weighting) {
 
 Deming.boot <- function(data, delta, R, n.fit, alpha, xmin, xmax) {
   br   <- boot(data=data, delta=delta, alpha=alpha, statistic=Deming.reg, R=R)
+  ok   <- complete.cases(br$t)
+  br$t <- br$t[ok, , drop=FALSE]
+  br$R <- nrow(br$t)
   a.ci <- boot.ci(br, type="bca", index=1)
   b.ci <- boot.ci(br, type="bca", index=2)
   av   <- br$t[,1]; bv <- br$t[,2]
