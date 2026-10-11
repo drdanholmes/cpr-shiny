@@ -22,18 +22,18 @@ jobs:
         shell: pwsh
         working-directory: electron
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
 
       - name: Cache bundled R
         id: cache-r
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: electron/r-win
-          key: r-win-${{ env.R_VERSION }}-${{ hashFiles('electron/scripts/*') }}
+          key: r-win-${{ env.R_VERSION }}-${{ hashFiles('electron/scripts/get-r-windows.ps1', 'electron/scripts/install-pkgs.R') }}
 
       - name: Download and install portable R
         if: steps.cache-r.outputs.cache-hit != 'true'
@@ -44,11 +44,7 @@ jobs:
         run: ./r-win/bin/Rscript.exe --vanilla scripts/install-pkgs.R
 
       - name: Smoke-test the app loads in bundled R
-        run: >
-          ./r-win/bin/Rscript.exe --vanilla -e
-          "setwd('..'); .libPaths(.Library); shiny::loadSupport();
-          a <- source('app.R')$value; stopifnot(inherits(a, 'shiny.appobj'));
-          cat('App loaded OK')"
+        run: ./r-win/bin/Rscript.exe --vanilla scripts/smoke-test.R
 
       - name: Set version from tag
         if: startsWith(github.ref, 'refs/tags/v')
@@ -62,7 +58,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: cp-R-windows
           path: electron/dist/*.exe
@@ -70,6 +66,6 @@ jobs:
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: electron/dist/*.exe
