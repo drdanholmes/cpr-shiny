@@ -6,7 +6,8 @@
 
 # ── 1. Install / load R packages ─────────────────────────────────────────────
 local({
-  needed  <- c("shiny", "rhandsontable", "shinyjs", "jsonlite", "base64enc")
+  needed  <- c("shiny", "rhandsontable", "shinyjs", "jsonlite",
+               "ggplot2", "plotly", "boot", "mcr")
   missing <- needed[!(needed %in% installed.packages()[, "Package"])]
   if (length(missing))
     install.packages(missing, repos = "https://cloud.r-project.org")
@@ -16,15 +17,13 @@ library(shiny)
 library(rhandsontable)
 library(shinyjs)
 library(jsonlite)
-library(base64enc)
+library(ggplot2)
+library(plotly)
+library(boot)
+suppressPackageStartupMessages(library(mcr))
 
-# ── 2. Locate the Rdata scripts directory ────────────────────────────────────
-# Works whether launched via runApp(), shiny::runApp(), or Rscript app.R
-app_path <- tryCatch(
-  normalizePath(dirname(sys.frame(1)$ofile)),
-  error = function(e) getwd()
-)
-rdata_dir <- file.path(app_path, "Rdata")
+# ── 2. Analysis and plotting functions ───────────────────────────────────────
+# Shiny sources R/*.R automatically before app.R; nothing to do here.
 
 # ── 3. UI ─────────────────────────────────────────────────────────────────────
 ui <- fluidPage(
@@ -536,7 +535,7 @@ ui <- fluidPage(
 
         div(class = "panel-inner",
           h5("Interactive Plot"),
-          uiOutput("interactive_plot")
+          plotlyOutput("interactive_plot", height = "480px")
         ),
 
         div(class = "panel-inner",
@@ -558,18 +557,13 @@ server <- function(input, output, session) {
 
   INIT_ROWS <- 50
 
-  # Stable tmpdir for this server process
-  # Normalise to forward slashes so paths work on all platforms including Windows
-  tmpdir <- gsub("\\\\", "/", file.path(tempdir(), paste0("cprshiny_", Sys.getpid())))
-
   rv <- reactiveValues(
     df       = data.frame(x = rep(NA_real_, INIT_ROWS),
                           y = rep(NA_real_, INIT_ROWS)),
-    previews = character(0),
+    result   = NULL,   # fit, band, ba, pp, stats from the last Graph run
     pidx     = 1L,
     stats    = "Click '\u25b6 Graph' to run the analysis.",
-    plot_run = 0L,
-    widget   = list()
+    plot_run = 0L
   )
 
   # ── rhandsontable ─────────────────────────────────────────────────────────
@@ -683,22 +677,13 @@ server <- function(input, output, session) {
       rownames(rv$df) <- NULL   # reset to 1, 2, 3, ... to match plotly
     }
 
-    # Create / clean temp dirs
-    for (sub in c("plots", "previews", "Rdata")) {
-      d <- file.path(tmpdir, sub)
-      dir.create(d, recursive = TRUE, showWarnings = FALSE)
-      old <- list.files(d, full.names = TRUE)
-      if (length(old)) file.remove(old)
-    }
-
-    # Validate — rv$df is already stripped of incomplete rows above
     dat <- rv$df
     if (nrow(dat) < 3) {
       showNotification("Please enter at least 3 complete (x, y) pairs.", type = "warning")
       return()
     }
 
-    # ── Validate color inputs server-side before sending to R ──────────────
+    # ── Validate color inputs ──────────────────────────────────────────────
     valid_colors <- tolower(colors())
     is_valid_color <- function(s) {
       s <- trimws(s)
@@ -734,16 +719,15 @@ server <- function(input, output, session) {
       if (is.na(v)) NA_real_ else v
     }
 
-    # Build parameter data.frame — column names must EXACTLY match what the
-    # R scripts expect when they call read.csv() and optionally attach()
-    pp <- data.frame(
+    # Plot parameters, snapshotted at Graph time
+    pp <- list(
       my_pch              = as.integer(input$pointstyle),
-      my_point_col        = input$col,
+      my_point_col        = trimws(input$col),
       my_cex              = as.numeric(input$pointcex),
-      my_bg               = input$bg,
+      my_bg               = trimws(input$bg),
       my_lty              = as.integer(input$lty),
       my_lwd              = as.numeric(input$lwd),
-      my_lincol           = input$lincol,
+      my_lincol           = trimws(input$lincol),
       xmin                = to_num(input$xmin),
       xmax                = to_num(input$xmax),
       ymin                = to_num(input$ymin),
@@ -755,177 +739,114 @@ server <- function(input, output, session) {
       plot_method         = isTRUE(input$chk_method),
       plot_rsquared       = isTRUE(input$chk_rsquared),
       plot_identity       = isTRUE(input$chk_identity),
-      plot_type           = input$plot_type,
       plot_confidence     = isTRUE(input$chk_confidence),
-      delta               = as.numeric(input$deming_ratio),
-      plot_difference_abs = (input$diff_style == "abs"),
-      confidence_fill_col = input$conf_fill_col,
+      plot_conf_outline   = isTRUE(input$chk_conf_outline),
+      confidence_fill_col = trimws(input$conf_fill_col),
       confidence_transp   = as.numeric(input$conf_transp),
+      conf_col            = trimws(input$conf_col),
+      font_mult           = as.integer(input$font_multiplier),
       my_height           = as.numeric(input$img_height),
       my_width            = as.numeric(input$img_width),
       my_dpi              = as.integer(input$img_dpi),
-      font_mult           = as.integer(input$font_multiplier),
-      plot_conf_outline   = isTRUE(input$chk_conf_outline),
-      conf_col            = input$conf_col,
-      weighting           = weighting_flag,
       sdi_lower           = as.numeric(input$sdi_lower),
       sdi_upper           = as.numeric(input$sdi_upper),
-      diff_plot_units     = ifelse(nzchar(trimws(input$diff_plot_units)),
-                                  input$diff_plot_units, NA_character_),
-      reg_method          = input$reg_method,
-      stringsAsFactors    = FALSE
+      diff_plot_units     = trimws(input$diff_plot_units)
     )
 
-    # Write parameter CSV (tab-separated, quoted strings)
-    write.table(
-      pp,
-      file      = file.path(tmpdir, "Rdata", "plot_parameters.csv"),
-      sep       = "\t",
-      quote     = TRUE,
-      row.names = FALSE,
-      na        = "NA"
-    )
+    d <- data.frame(x = dat$x, y = dat$y, row = seq_len(nrow(dat)))
 
-    # Write regression data CSV (no header, tab-separated, NA for missing)
-    write.table(
-      dat,
-      file      = file.path(tmpdir, "Rdata", "regression_data.csv"),
-      sep       = "\t",
-      quote     = FALSE,
-      row.names = FALSE,
-      col.names = FALSE,
-      na        = "NA"
-    )
-
-    # Run scripts via Rscript subprocess — isolated environment, works on
-    # local and server deployment. R.home("bin") finds Rscript without
-    # relying on it being on the system PATH.
-    rscript_bin <- file.path(R.home("bin"), "Rscript")
-
-    run_r <- function(script_name, log_name = "Rscript.log") {
-      rscript  <- file.path(rdata_dir, script_name)
-      log_file <- file.path(tmpdir, "Rdata", log_name)
-      safe_tmp <- gsub("\\\\", "/", tmpdir)
-      cmd <- sprintf(
-        '"%s" --vanilla "%s" "tmpdir=\'%s\'" > "%s" 2>&1',
-        rscript_bin, rscript, safe_tmp, log_file
-      )
-      ret <- system(cmd, intern = FALSE, ignore.stderr = FALSE)
-      if (ret != 0) {
-        txt <- if (file.exists(log_file))
-          tail(readLines(log_file, warn = FALSE), 30)
-        else "(no log)"
-        showNotification(
-          paste0(script_name, " error:\n", paste(txt, collapse = "\n")),
-          type = "error", duration = 20
+    res <- withProgress(message = "Running analysis…", value = 0.2, {
+      tryCatch({
+        fit <- switch(input$reg_method,
+          "LS"     = fit_ls(d, weighting_flag),
+          "PB"     = fit_pb(d, band = pp$plot_confidence),
+          "Deming" = fit_deming(d, as.numeric(input$deming_ratio), weighting_flag)
         )
-      }
-      invisible(ret)
-    }
-
-    withProgress(message = "Running R analysis\u2026", value = 0.05, {
-      incProgress(0.25, detail = "Regression\u2026")
-      switch(input$reg_method,
-        "LS"     = run_r("linear_regression.R", "regression.log"),
-        "PB"     = run_r("PB_regression.R",     "regression.log"),
-        "Deming" = run_r("Deming_regression.R", "regression.log")
-      )
-      incProgress(0.45, detail = "Difference plot\u2026")
-      run_r("BA_plot.R", "BA.log")
-      setProgress(1.0, detail = "Done.")
+        incProgress(0.6, detail = "Difference plot…")
+        pp   <- fill_limits(pp, fit$data)
+        ba   <- fit_ba(d, input$diff_style == "abs")
+        list(fit   = fit,
+             band  = fit_band(fit, c(pp$xmin, pp$xmax)),
+             ba    = ba,
+             pp    = pp,
+             stats = sub("\n+$", "", paste0(stats_text(fit), ba_stats_text(ba))))
+      }, error = function(e) {
+        showNotification(paste("Analysis error:", conditionMessage(e)),
+                         type = "error", duration = 20)
+        NULL
+      })
     })
+    if (is.null(res)) return()
 
-    # Load previews
-    rv$previews <- sort(list.files(
-      file.path(tmpdir, "previews"),
-      pattern    = "\\.jpg$",
-      full.names = TRUE
-    ))
+    rv$result   <- res
+    rv$stats    <- res$stats
     rv$pidx     <- 1L
-    rv$plot_run <- rv$plot_run + 1L   # invalidates renderUI regardless of filenames
-
-    # Load widget paths (regression.html and bland_altman.html)
-    widget_dir  <- file.path(tmpdir, "widgets")
-    rv$widget   <- list(
-      regression   = file.path(widget_dir, "regression.html"),
-      bland_altman = file.path(widget_dir, "bland_altman.html")
-    )
+    rv$plot_run <- rv$plot_run + 1L
 
     # Re-attach colour autocomplete datalists after conditionalPanel re-renders
     session$sendCustomMessage("reattach_colors",
                               list("col", "bg", "lincol", "conf_fill_col", "conf_col"))
-
-    # Load stats text
-    stats_path <- file.path(tmpdir, "plots", "stats_output.txt")
-    rv$stats <- if (file.exists(stats_path)) {
-      paste(readLines(stats_path, warn = FALSE), collapse = "\n")
-    } else {
-      "(stats_output.txt not found \u2014 check R log for errors)"
-    }
   })
 
-  # ── Plot navigation ───────────────────────────────────────────────────────
+  # ── Plot pages: 1 = regression, 2 = Bland-Altman ─────────────────────────
+  PLOT_NAMES <- c("regression", "bland_altman")
+  n_pages    <- function() if (is.null(rv$result)) 0L else length(PLOT_NAMES)
+
+  # Draw page `idx` of the current result onto the open device
+  draw_page <- function(res, idx) {
+    if (idx == 1L) draw_regression(res$fit, res$band, res$pp)
+    else           draw_ba(res$ba, res$pp)
+  }
+
+  # Write page `idx` to `path` in format `fmt` at the Graph-time image size
+  save_page <- function(res, idx, fmt, path) {
+    open_device(fmt, path, res$pp)
+    on.exit(dev.off())
+    draw_page(res, idx)
+  }
+
   observeEvent(input$btn_next, {
-    n <- length(rv$previews); if (n == 0) return()
+    n <- n_pages(); if (n == 0) return()
     rv$pidx <- (rv$pidx %% n) + 1L
   })
 
   observeEvent(input$btn_prev, {
-    n <- length(rv$previews); if (n == 0) return()
+    n <- n_pages(); if (n == 0) return()
     rv$pidx <- ((rv$pidx - 2L) %% n) + 1L
   })
 
   output$plot_index_label <- renderText({
-    if (length(rv$previews) == 0) return("")
-    paste0(rv$pidx, " / ", length(rv$previews))
+    if (n_pages() == 0) return("")
+    paste0(rv$pidx, " / ", n_pages())
   })
 
-  # ── Preview image (base64 inline) ─────────────────────────────────────────
+  # ── Preview image ─────────────────────────────────────────────────────────
+  # Same size in inches and pointsize as the download, at screen resolution,
+  # so the preview is laid out exactly like the saved file.
   output$plot_preview <- renderUI({
-    # Explicitly take a dependency on plot_run so this re-executes on every
-    # new graph run, even when filenames on disk are identical to last time.
-    rv$plot_run
-    if (length(rv$previews) == 0)
+    if (is.null(rv$result))
       return(tags$p(id = "plot_placeholder", "Run the analysis to see plots here."))
-    f   <- rv$previews[rv$pidx]
-    b64 <- base64encode(f)
-    tags$img(
-      src   = paste0("data:image/jpeg;base64,", b64),
-      style = "max-width:100%; max-height:470px;"
-    )
+    imageOutput("plot_img", height = "auto")
   })
 
-  # ── Interactive plotly widget (iframe, switches with prev/next) ──────────
-  output$interactive_plot <- renderUI({
-    rv$plot_run   # re-render on every new graph run
-    w <- rv$widget
-    if (length(w) == 0 || !file.exists(w$regression))
-      return(tags$p(style = "color:#8888a0; padding:20px; text-align:center;",
-                    "Run the analysis to see the interactive plot here."))
+  output$plot_img <- renderImage({
+    res <- rv$result
+    req(res)
+    f <- tempfile(fileext = ".png")
+    png(f, width = res$pp$my_width, height = res$pp$my_height, units = "in",
+        res = 100, pointsize = res$pp$font_mult)
+    draw_page(res, rv$pidx)
+    dev.off()
+    list(src = f, contentType = "image/png", alt = "Plot preview",
+         style = "max-width:100%; max-height:470px;")
+  }, deleteFile = TRUE)
 
-    # Decide which widget to show based on the current preview
-    stem <- if (length(rv$previews) > 0)
-      tools::file_path_sans_ext(basename(rv$previews[rv$pidx]))
-    else "A"
-
-    html_path <- if (stem == "B" && file.exists(w$bland_altman)) {
-      w$bland_altman
-    } else {
-      w$regression
-    }
-
-    # Register a resource path keyed to the run so Shiny serves the file
-    alias <- paste0("cprwidget_", rv$plot_run)
-    addResourcePath(alias, dirname(html_path))
-    src   <- paste0(alias, "/", basename(html_path))
-
-    tags$iframe(
-      src             = src,
-      style           = "width:100%; height:480px; border:none;",
-      scrolling       = "no",
-      frameborder     = "0",
-      allowtransparency = "true"
-    )
+  # ── Interactive plotly widget (switches with prev/next) ──────────────────
+  output$interactive_plot <- renderPlotly({
+    res <- rv$result
+    shiny::validate(need(!is.null(res), "Run the analysis to see the interactive plot here."))
+    if (rv$pidx == 1L) plotly_regression(res$fit, res$band, res$pp)
+    else               plotly_ba(res$ba, res$pp)
   })
 
   # ── Stats box ─────────────────────────────────────────────────────────────
@@ -934,60 +855,40 @@ server <- function(input, output, session) {
     rv$stats
   })
 
-  # ── Download current preview ──────────────────────────────────────────────
-  # Map preview filename stem → output base name
-  preview_to_name <- c(
-    "A" = "regression",
-    "B" = "bland_altman"
-  )
+  # ── Downloads: drawn on demand in the currently selected format ──────────
+  current_format <- function() {
+    fmt <- input$plot_type
+    if (is.null(fmt) || !nzchar(fmt)) "jpg" else fmt
+  }
 
   output$dl_current_plot <- downloadHandler(
     filename = function() {
-      if (length(rv$previews) == 0) return("no_plot.txt")
-      stem <- tools::file_path_sans_ext(basename(rv$previews[rv$pidx]))
-      nm   <- preview_to_name[[stem]]
-      if (is.null(nm)) nm <- stem
-      fmt  <- isolate(input$plot_type)
-      if (is.null(fmt) || !nzchar(fmt)) fmt <- "jpg"
-      paste0(nm, ".", fmt)
+      if (n_pages() == 0) return("no_plot.txt")
+      paste0(PLOT_NAMES[rv$pidx], ".", current_format())
     },
     content = function(file) {
-      req(length(rv$previews) > 0)
-      stem <- tools::file_path_sans_ext(basename(rv$previews[rv$pidx]))
-      nm   <- preview_to_name[[stem]]
-      if (is.null(nm)) nm <- stem
-      fmt  <- isolate(input$plot_type)
-      if (is.null(fmt) || !nzchar(fmt)) fmt <- "jpg"
-      # Regression plot is saved as "plot.*"; BA plot as "BA_plot.*"
-      src_stem <- switch(nm,
-        "regression"  = "plot",
-        "bland_altman" = "BA_plot",
-        nm
-      )
-      src <- file.path(tmpdir, "plots", paste0(src_stem, ".", fmt))
-      if (file.exists(src)) {
-        file.copy(src, file)
-      } else {
-        showNotification(
-          paste0("File not found: ", basename(src), " — please re-run the analysis."),
-          type = "warning", duration = 6
-        )
-      }
+      req(rv$result)
+      save_page(rv$result, rv$pidx, current_format(), file)
     },
     contentType = "application/octet-stream"
   )
 
-  # ── Download all static outputs as zip ───────────────────────────────────
   output$dl_all_plots <- downloadHandler(
     filename    = function() {
       paste0("cpR_output_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".zip")
     },
     content     = function(file) {
-      all_files <- list.files(file.path(tmpdir, "plots"), full.names = TRUE)
-      req(length(all_files) > 0)
-      owd <- setwd(file.path(tmpdir, "plots"))
-      on.exit(setwd(owd), add = TRUE)
-      zip(file, basename(all_files))
+      req(rv$result)
+      fmt <- current_format()
+      dir <- tempfile("cpr_zip_")
+      dir.create(dir)
+      on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+      save_page(rv$result, 1L, fmt, file.path(dir, paste0("plot.",    fmt)))
+      save_page(rv$result, 2L, fmt, file.path(dir, paste0("BA_plot.", fmt)))
+      writeLines(rv$result$stats, file.path(dir, "stats_output.txt"))
+      owd <- setwd(dir)
+      on.exit(setwd(owd), add = TRUE, after = FALSE)
+      zip(file, list.files())
     },
     contentType = "application/zip"
   )
