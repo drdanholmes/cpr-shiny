@@ -7,7 +7,7 @@
 # ── 1. Install / load R packages ─────────────────────────────────────────────
 local({
   needed  <- c("shiny", "rhandsontable", "shinyjs", "jsonlite",
-               "ggplot2", "plotly", "boot", "mcr")
+               "plotly", "boot", "mcr")
   missing <- needed[!(needed %in% installed.packages()[, "Package"])]
   if (length(missing))
     install.packages(missing, repos = "https://cloud.r-project.org")
@@ -17,7 +17,6 @@ library(shiny)
 library(rhandsontable)
 library(shinyjs)
 library(jsonlite)
-library(ggplot2)
 library(plotly)
 library(boot)
 suppressPackageStartupMessages(library(mcr))
@@ -757,6 +756,7 @@ server <- function(input, output, session) {
 
     res <- withProgress(message = "Running analysis…", value = 0.2, {
       tryCatch({
+        set.seed(1)   # same data + settings always give the same bootstrap results
         fit <- switch(input$reg_method,
           "LS"     = fit_ls(d, weighting_flag),
           "PB"     = fit_pb(d, band = pp$plot_confidence),

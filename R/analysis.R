@@ -16,6 +16,15 @@ fill_limits <- function(pp, d) {
   pp
 }
 
+# Ordinary bootstrap, replicates spread over CPU cores where forking is
+# available. boot() draws all resampling indices up front, so results are
+# identical to a serial run with the same seed.
+boot_fast <- function(data, statistic, R, ...) {
+  boot(data = data, statistic = statistic, R = R, ...,
+       parallel = if (.Platform$OS.type == "unix") "multicore" else "no",
+       ncpus    = min(parallel::detectCores(), 8L))
+}
+
 # x grid for confidence bands: axis range extended 10% each side
 band_grid <- function(xlim, n) {
   span <- abs(xlim[2] - xlim[1])
@@ -52,11 +61,15 @@ pb_coef <- function(data, indices) {
   j <- sequence((n - 1):1, from = 2:n)
   keep <- x[i] != x[j] & !(y[i] == y[j] & x[i] < x[j])
   if (!any(keep)) return(c(NA_real_, NA_real_))
-  S <- sort((y[i][keep] - y[j][keep]) / (x[i][keep] - x[j][keep]))
+  S <- (y[i][keep] - y[j][keep]) / (x[i][keep] - x[j][keep])
   N <- length(S)
   K <- sum(S < 0) %/% 2L
-  b <- if (N %% 2 == 1) S[(N + 1) / 2 + K]
-       else 0.5 * (S[N/2 + K] + S[N/2 + K + 1])
+  # Shifted median of the slopes; a partial sort finds the needed order
+  # statistics in linear time
+  k <- if (N %% 2 == 1) (N + 1) / 2 + K else N/2 + K + 0:1
+  if (max(k) > N) return(c(NA_real_, NA_real_))
+  v <- sort.int(S, partial = k)[k]
+  b <- if (length(v) == 1) v else 0.5 * (v[1] + v[2])
   c(median(y - b * x), b)
 }
 
@@ -66,7 +79,7 @@ fit_pb <- function(d, alpha = 0.05, band = TRUE, R = 500) {
   para <- fit@para
   boot_coef <- NULL
   if (band) {
-    br <- boot(data = d[, c("x", "y")], statistic = pb_coef, R = R)
+    br <- boot_fast(d[, c("x", "y")], pb_coef, R = R)
     boot_coef <- br$t[complete.cases(br$t), , drop = FALSE]
   }
   list(method       = "PB",
@@ -118,7 +131,7 @@ fit_deming <- function(d, delta = 1, weighted = FALSE, alpha = 0.05, R = 1000) {
   dd <- data.frame(x = d$x, y = d$y, w = wt$w)
   ab <- deming_coef(dd, delta)
 
-  br <- boot(data = dd, statistic = deming_coef, R = R, delta = delta)
+  br <- boot_fast(dd, deming_coef, R = R, delta = delta)
   ok <- complete.cases(br$t)
   br$t <- br$t[ok, , drop = FALSE]
   br$R <- sum(ok)
