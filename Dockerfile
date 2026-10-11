@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN Rscript -e "\
   pkgs <- c( \
     'shiny', 'rhandsontable', 'shinyjs', 'jsonlite', \
-    'plotly', 'boot', 'mcr' \
+    'plotly', 'boot', 'mcr', 'zip' \
   ); \
   install.packages(pkgs, repos='https://cloud.r-project.org', \
                    Ncpus=parallel::detectCores()); \

@@ -42,3 +42,8 @@ docker_build_command.txt
 docker_launch_command.txt
 
 
+
+# Electron desktop build (bundled R, node modules, installers)
+electron/node_modules/
+electron/r-win/
+electron/dist/

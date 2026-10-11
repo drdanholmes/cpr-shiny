@@ -1,0 +1,43 @@
+{
+  "name": "cpr-desktop",
+  "productName": "cp-R",
+  "version": "1.0.0",
+  "description": "cp-R method comparison app (Shiny) packaged for Windows",
+  "author": "Daniel Holmes",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.4.3",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.drdanholmes.cpr",
+    "productName": "cp-R",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "splash.html"
+    ],
+    "extraResources": [
+      { "from": "r-win", "to": "R" },
+      { "from": "../app.R", "to": "app/app.R" },
+      { "from": "../R", "to": "app/R" }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "cp-R-Setup-${version}.exe"
+    }
+  }
+}

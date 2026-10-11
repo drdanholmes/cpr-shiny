@@ -1060,7 +1060,7 @@ server <- function(input, output, session) {
       writeLines(rv$result$stats, file.path(dir, "stats_output.txt"))
       owd <- setwd(dir)
       on.exit(setwd(owd), add = TRUE, after = FALSE)
-      zip(file, list.files())
+      zip::zip(file, list.files())
     },
     contentType = "application/zip"
   )
