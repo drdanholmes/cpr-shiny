@@ -764,15 +764,24 @@ server <- function(input, output, session) {
     d
   }
 
+  # Keep one empty row at the bottom to type into. Done here rather than with
+  # Handsontable's minSpareRows, which counts the FALSE checkbox as data and
+  # so keeps adding rows.
+  ensure_spare <- function(d) {
+    n <- nrow(d)
+    if (n == 0 || !is.na(d$x[n]) || !is.na(d$y[n])) d <- rbind(d, blank_rows(1))
+    d
+  }
+
   # Sync table edits back to rv$df
   observe({
     req(input$hot_table)
-    rv$df <- read_table()
+    rv$df <- ensure_spare(read_table())
   })
 
   # ── Clear ─────────────────────────────────────────────────────────────────
   observeEvent(input$btn_clear, {
-    rv$df <- blank_rows(INIT_ROWS)
+    rv$df <- blank_rows(min_rows())
   })
 
   # ── Paste via modal ───────────────────────────────────────────────────────
@@ -821,8 +830,21 @@ server <- function(input, output, session) {
     d[!(is.na(d$x) & is.na(d$y)), ]
   }
 
+  # Rows needed to fill the stretched table (header ~26px, rows 23px), so no
+  # empty space shows below the last row; never fewer than INIT_ROWS
+  min_rows <- function() {
+    h <- isolate(input$hot_height)
+    if (is.null(h)) return(INIT_ROWS)
+    max(INIT_ROWS, ceiling((h - 26) / 23))
+  }
+
+  # Table grew taller: top up with blank rows
+  observeEvent(input$hot_height, {
+    if (nrow(rv$df) < min_rows()) rv$df <- pad_df(rv$df)
+  })
+
   pad_df <- function(d) {
-    pad <- max(0L, INIT_ROWS - nrow(d))
+    pad <- max(0L, min_rows() - nrow(d))
     if (pad > 0) d <- rbind(d, blank_rows(pad))
     d
   }
