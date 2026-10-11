@@ -57,20 +57,28 @@ fit_ls <- function(d, weighted = FALSE) {
 pb_coef <- function(data, indices) {
   x <- data[indices, 1]; y <- data[indices, 2]
   n <- length(x)
-  # All pairs i < j, vectorised
-  i <- rep.int(seq_len(n - 1), (n - 1):1)
-  j <- sequence((n - 1):1, from = 2:n)
-  keep <- x[i] != x[j] & !(y[i] == y[j] & x[i] < x[j])
-  if (!any(keep)) return(c(NA_real_, NA_real_))
-  S <- (y[i][keep] - y[j][keep]) / (x[i][keep] - x[j][keep])
+  # All pairs i < j, vectorised. Identical points are dropped; pairs with equal
+  # x give ±Inf slopes, as in Passing & Bablok (1983).
+  i  <- rep.int(seq_len(n - 1), (n - 1):1)
+  j  <- sequence((n - 1):1, from = 2:n)
+  dx <- x[j] - x[i]; dy <- y[j] - y[i]
+  keep <- !(dx == 0 & dy == 0)
+  S <- dy[keep] / dx[keep]
+  r <- suppressWarnings(cor(x, y))
+  if (is.na(r)) return(c(NA_real_, NA_real_))
+  # Slopes of -1 (+1 for negative correlation) are dropped and the median is
+  # shifted by the count beyond them, matching mcr
+  if (r >= 0) { S <- S[S != -1]; K <-  sum(S < -1) }
+  else        { S <- S[S !=  1]; K <- -sum(S >  1) }
   N <- length(S)
-  K <- sum(S < 0) %/% 2L
+  if (N == 0) return(c(NA_real_, NA_real_))
   # Shifted median of the slopes; a partial sort finds the needed order
   # statistics in linear time
   k <- if (N %% 2 == 1) (N + 1) / 2 + K else N/2 + K + 0:1
-  if (max(k) > N) return(c(NA_real_, NA_real_))
+  if (min(k) < 1 || max(k) > N) return(c(NA_real_, NA_real_))
   v <- sort.int(S, partial = k)[k]
   b <- if (length(v) == 1) v else 0.5 * (v[1] + v[2])
+  if (!is.finite(b)) return(c(NA_real_, NA_real_))
   c(median(y - b * x), b)
 }
 
@@ -120,7 +128,8 @@ deming_weights <- function(x, y, delta, weighted, max_iter = 500) {
     Yhat <- y - dist / (1 + lambda * ab[2]^2)
     if (!weighted) break
     w_old <- w
-    w     <- 1 / ((Xhat + Yhat) / 2)^2
+    # Linnet's constant-CV weights: true value estimated as (Xhat + λ·Yhat)/(1 + λ)
+    w     <- 1 / ((Xhat + lambda * Yhat) / (1 + lambda))^2
     max_iter <- max_iter - 1
     if (abs(max((w_old - w) / w_old)) <= 1e-5 || max_iter == 0) break
   }

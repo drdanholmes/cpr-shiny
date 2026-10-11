@@ -36,3 +36,9 @@ Thumbs.db
 
 # Local test data
 test_data.csv
+
+# Docker commands
+docker_build_command.txt
+docker_launch_command.txt
+
+
