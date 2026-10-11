@@ -438,6 +438,50 @@ ui <- fluidPage(
           try { if (document.execCommand('copy')) done(); } finally { document.body.removeChild(ta); }
         }
       }
+    ")),
+
+    # Inline JS: stretch the data-entry table so the left column ends level
+    # with the middle column. Only when the columns sit side by side (>= 768px);
+    # never shorter than the default 488px.
+    tags$script(HTML("
+      (function() {
+        var DEFAULT_H = 488, pending = null;
+
+        function fitTable() {
+          var el   = document.getElementById('hot_table'),
+              left = document.querySelector('.col-left'),
+              mid  = document.querySelector('.col-mid'),
+              w    = window.HTMLWidgets && HTMLWidgets.find('#hot_table'),
+              hot  = w && w.hot;
+          if (!el || !left || !mid || !hot) return;
+
+          var h = DEFAULT_H;
+          if (window.innerWidth >= 768) {
+            // container is 2px taller than the table itself
+            var target = el.offsetHeight + (mid.offsetHeight - left.offsetHeight) - 2;
+            h = Math.max(DEFAULT_H, Math.round(target));
+          }
+          if (h === hot.getSettings().height) return;
+
+          el.style.height = (h + 2) + 'px';
+          hot.updateSettings({ height: h });
+          if (window.Shiny && Shiny.setInputValue) Shiny.setInputValue('hot_height', h);
+        }
+
+        function schedule() {
+          if (pending) return;
+          pending = requestAnimationFrame(function() { pending = null; fitTable(); });
+        }
+
+        $(function() {
+          var mid = document.querySelector('.col-mid');
+          if (mid && window.ResizeObserver) new ResizeObserver(schedule).observe(mid);
+          $(window).on('resize', schedule);
+        });
+        $(document).on('shiny:value', function(e) {
+          if (e.name === 'hot_table') setTimeout(schedule, 50);
+        });
+      })();
     "))
   ),
 
@@ -689,12 +733,16 @@ server <- function(input, output, session) {
 
   # ── rhandsontable ─────────────────────────────────────────────────────────
   output$hot_table <- renderRHandsontable({
+    # Keep the height the browser last fitted (see the stretch script in the
+    # UI); isolate() so resizing never re-renders the table
+    hot_h <- isolate(input$hot_height)
+    if (is.null(hot_h)) hot_h <- 488
     rhandsontable(
       rv$df,
       rowHeaders  = seq_len(nrow(rv$df)),
       colHeaders  = c("x", "y", "exclude"),
       stretchH    = "all",
-      height      = 488,
+      height      = hot_h,
       contextMenu = TRUE,
       overflow    = "hidden"
     ) %>%
