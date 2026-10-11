@@ -178,8 +178,7 @@ fit_ba <- function(d, abs_diff = TRUE) {
   # For percent difference, x = y = 0 causes division by zero
   if (!abs_diff) d <- d[!(d$x == d$y & d$x == 0), , drop = FALSE]
   diff <- if (abs_diff) d$y - d$x else (d$y - d$x) / (d$y + d$x) * 200
-  list(data      = d,
-       abs_diff  = abs_diff,
+  list(abs_diff  = abs_diff,
        avg       = (d$x + d$y) / 2,
        diff      = diff,
        mean_diff = mean(diff),
@@ -187,10 +186,15 @@ fit_ba <- function(d, abs_diff = TRUE) {
 }
 
 # ── Statistics text ───────────────────────────────────────────────────────────
-stats_text <- function(fit) {
+# excluded: table row numbers the user excluded from the analysis
+stats_text <- function(fit, excluded = integer(0)) {
   d  <- fit$data
   n  <- nrow(d)
   r2 <- round(cor(d$x, d$y)^2, 6)
+  excl_line <- if (length(excluded))
+    sprintf("Excluded by user: %d (row%s %s)\n", length(excluded),
+            if (length(excluded) > 1) "s" else "", paste(excluded, collapse = ", "))
+  else ""
 
   if (fit$method == "LS") {
     reg <- fit$lm
@@ -204,7 +208,7 @@ stats_text <- function(fit) {
     rse_wtd <- round(sqrt(sum((sqrt(fit$w) * reg$residuals)^2) / df2), 3)
     out <- c("Regression Summary\n\n",
              "Method: ", if (fit$weighted) "LSR, weighted" else "LSR", "\n",
-             "Number of complete cases: ", n, "\n\n")
+             "Number of complete cases: ", n, "\n", excl_line, "\n")
     if (fit$n_zero_x > 0)
       out <- c(out, sprintf("Warning: %d record(s) with x=0 excluded for 1/x² weighting\n\n",
                             fit$n_zero_x))
@@ -222,7 +226,7 @@ stats_text <- function(fit) {
   rse   <- round(sqrt(sum(resid^2) / (n - 2)), 3)
   out <- c("Regression Summary\n\n",
            "Method: ", fit$method_label, "\n",
-           "Number of complete cases: ", n, "\n\n",
+           "Number of complete cases: ", n, "\n", excl_line, "\n",
            sprintf("Intercept: %s\nCI Intercept: [%s,%s]\n\nSlope: %s\nCI Slope: [%s,%s]\n\nResidual Standard Error: %s on %d degrees of freedom\n",
                    round(fit$intercept, 3),
                    round(fit$ci_intercept[1], 3), round(fit$ci_intercept[2], 3),

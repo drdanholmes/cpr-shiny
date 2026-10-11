@@ -16,7 +16,6 @@ local({
 library(shiny)
 library(rhandsontable)
 library(shinyjs)
-library(jsonlite)
 library(plotly)
 library(boot)
 suppressPackageStartupMessages(library(mcr))
@@ -122,9 +121,6 @@ ui <- fluidPage(
       .col-left  .panel-inner { border: 1px solid rgba(92,157,192,.35); }
       .col-mid   .panel-inner { border: 1px solid rgba(160,127,214,.35); }
       .col-right .panel-inner { border: 1px solid rgba(136,136,160,.35); }
-
-      /* ── Sub-section dividers ───────────────────────────────────────────── */
-      hr.mini { margin: 7px 0; border: none; border-top: 1px dashed rgba(0,0,0,.12); }
 
       /* ── Form controls ──────────────────────────────────────────────────── */
       .compact .form-group { margin-bottom: 6px; }
@@ -250,7 +246,24 @@ ui <- fluidPage(
         margin-top: 5px;
       }
 
+      /* ── Graph button: table changed since the last run ─────────────────── */
+      .col-left .btn-success.btn-pending {
+        background: linear-gradient(135deg, #e67e22, #b85c0e);
+        border-color: #8e4708;
+        box-shadow: 0 0 0 3px rgba(230,126,34,.35);
+      }
+      .col-left .btn-success.btn-pending::after { content: '  \\2022 changes pending'; font-weight: 400; }
+
+      /* ── pch / lty pickers ─────────────────────────────────────────────── */
+      .glyph-opt { display: flex; align-items: center; gap: 6px; }
+      .glyph-opt svg { flex-shrink: 0; }
+      .selectize-input .glyph-opt { display: inline-flex; vertical-align: middle; }
+      .selectize-input.has-items input { position: absolute; width: 4px !important; }
+      .compact .selectize-input { min-height: 28px; padding: 3px 7px; font-size: 12.5px; }
+      .compact .selectize-dropdown .option { padding: 2px 7px; }
+
       /* ── Color picker widgets ───────────────────────────────────────────── */
+      .color-row { display: flex; align-items: center; gap: 4px; }
       .color-swatch {
         width: 22px; height: 22px; min-width: 22px;
         border-radius: 4px;
@@ -273,13 +286,14 @@ ui <- fluidPage(
     ")),
     # Inline JS: live swatch update + datalist injection for all color inputs
     tags$script(HTML(sprintf("
+      // R colour name -> hex (many R names, e.g. gray50, are not CSS colours)
       var R_COLORS = %s;
 
       // Build one shared <datalist> and attach to every color input
       document.addEventListener('DOMContentLoaded', function() {
         var dl = document.createElement('datalist');
         dl.id  = 'r-color-list';
-        R_COLORS.forEach(function(c) {
+        Object.keys(R_COLORS).forEach(function(c) {
           var opt = document.createElement('option');
           opt.value = c;
           dl.appendChild(opt);
@@ -293,24 +307,23 @@ ui <- fluidPage(
       });
 
       function attachColor(id) {
-        // Shiny wraps the input inside a div#id; the actual <input> is inside it
-        var wrap = document.getElementById(id);
-        if (!wrap) { setTimeout(function(){ attachColor(id); }, 200); return; }
-        var inp = wrap.querySelector('input.form-control');
-        if (!inp)  { setTimeout(function(){ attachColor(id); }, 200); return; }
+        // textInput() puts the id on the <input> itself
+        var inp = document.getElementById(id);
+        if (!inp) { setTimeout(function(){ attachColor(id); }, 200); return; }
 
         // Link datalist
         inp.setAttribute('list', 'r-color-list');
         inp.setAttribute('autocomplete', 'off');
 
-        // Inject swatch span right after the input
+        // Put the input and a swatch side by side
+        var row = document.createElement('div');
+        row.className = 'color-row';
+        inp.before(row);
+        row.appendChild(inp);
         var swatch = document.createElement('span');
         swatch.className = 'color-swatch';
         swatch.id = 'swatch-' + id;
-        inp.parentNode.style.display = 'flex';
-        inp.parentNode.style.alignItems = 'center';
-        inp.parentNode.style.gap = '4px';
-        inp.after(swatch);
+        row.appendChild(swatch);
 
         // Live update
         inp.addEventListener('input',  function(){ updateSwatch(id, inp.value); });
@@ -321,11 +334,13 @@ ui <- fluidPage(
       function updateSwatch(id, val) {
         var swatch = document.getElementById('swatch-' + id);
         if (!swatch) return;
-        var wrap = document.getElementById(id);
-        var valid = R_COLORS.indexOf(val.trim().toLowerCase()) >= 0 ||
-                    /^#[0-9a-fA-F]{3,8}$/.test(val.trim());
-        if (valid) {
-          swatch.style.background = val.trim();
+        var wrap = document.getElementById(id).closest('.form-group');
+        var css = /^#[0-9a-fA-F]{3,8}$/.test(val.trim()) ? val.trim()
+                  : R_COLORS[val.trim().toLowerCase()];
+        if (css) {
+          swatch.style.background = css;
+          // Tint the pch / lty picker glyphs with the chosen colours
+          document.documentElement.style.setProperty('--sw-' + id, css);
           if (wrap) wrap.classList.remove('color-invalid');
         } else {
           swatch.style.background = '';
@@ -335,13 +350,61 @@ ui <- fluidPage(
           }
         }
       }
+    ", jsonlite::toJSON(as.list(setNames(
+         rgb(t(col2rgb(colors())), maxColorValue = 255), tolower(colors()))),
+       auto_unbox = TRUE)))),
+    # Inline JS: SVG glyphs for the point-style (pch) and line-type (lty)
+    # pickers, used as selectize render functions
+    tags$script(HTML("
+      var CPR_COL = 'var(--sw-col, blue)', CPR_BG = 'var(--sw-bg, gray)';
 
-      // Called from server when a new plot run starts (re-attach if Shiny
-      // re-rendered a conditionalPanel and lost the datalist link)
-      Shiny.addCustomMessageHandler('reattach_colors', function(ids) {
-        ids.forEach(function(id) { attachColor(id); });
-      });
-    ", jsonlite::toJSON(tolower(colors())))))
+      function cprShape(kind, fill) {
+        var st = ' style=\"stroke:' + CPR_COL + ';stroke-width:1.4;fill:' + (fill || 'none') + '\"';
+        switch (kind) {
+          case 'circle':  return '<circle cx=\"9\" cy=\"9\" r=\"5.5\"' + st + '/>';
+          case 'small':   return '<circle cx=\"9\" cy=\"9\" r=\"3\"' + st + '/>';
+          case 'square':  return '<rect x=\"3.5\" y=\"3.5\" width=\"11\" height=\"11\"' + st + '/>';
+          case 'up':      return '<polygon points=\"9,2.5 15.5,14.5 2.5,14.5\"' + st + '/>';
+          case 'down':    return '<polygon points=\"2.5,3.5 15.5,3.5 9,15.5\"' + st + '/>';
+          case 'diamond': return '<polygon points=\"9,2 16,9 9,16 2,9\"' + st + '/>';
+          case 'sdiam':   return '<polygon points=\"9,4 14,9 9,14 4,9\"' + st + '/>';
+          case 'plus':    return '<path d=\"M9 2.5V15.5M2.5 9H15.5\"' + st + '/>';
+          case 'x':       return '<path d=\"M4 4L14 14M14 4L4 14\"' + st + '/>';
+          case 'roof':    return '<path d=\"M3.5 14.5L9 3.5L14.5 14.5\"' + st + '/>';
+        }
+      }
+
+      var CPR_PCH = {
+        0: [['square']],  1: [['circle']], 2: [['up']], 3: [['plus']], 4: [['x']],
+        5: [['diamond']], 6: [['down']],
+        7: [['square'], ['x']],      8: [['plus'], ['x']],
+        9: [['diamond'], ['plus']], 10: [['circle'], ['plus']],
+        11: [['up'], ['down']],     12: [['square'], ['plus']],
+        13: [['circle'], ['x']],    14: [['square'], ['roof']],
+        15: [['square', CPR_COL]],  16: [['circle', CPR_COL]], 17: [['up', CPR_COL]],
+        18: [['sdiam', CPR_COL]],   19: [['circle', CPR_COL]], 20: [['small', CPR_COL]],
+        21: [['circle', CPR_BG]],   22: [['square', CPR_BG]],  23: [['diamond', CPR_BG]],
+        24: [['up', CPR_BG]],       25: [['down', CPR_BG]]
+      };
+
+      function cprPchRender(item, escape) {
+        var parts = CPR_PCH[item.value] || [];
+        var svg = '<svg width=\"18\" height=\"18\" viewBox=\"0 0 18 18\">' +
+          parts.map(function(p) { return cprShape(p[0], p[1]); }).join('') + '</svg>';
+        return '<div class=\"glyph-opt\">' + svg + '<span>' + escape(item.label) + '</span></div>';
+      }
+
+      // R lty dash patterns, scaled for a 2px line
+      var CPR_LTY = { 1: '', 2: '8,8', 3: '2,6', 4: '2,6,8,6', 5: '14,6', 6: '4,4,12,4' };
+
+      function cprLtyRender(item, escape) {
+        var dash = CPR_LTY[item.value] ? ' stroke-dasharray=\"' + CPR_LTY[item.value] + '\"' : '';
+        var svg = '<svg width=\"44\" height=\"10\" viewBox=\"0 0 44 10\">' +
+          '<line x1=\"1\" y1=\"5\" x2=\"43\" y2=\"5\" style=\"stroke:var(--sw-lincol, black);stroke-width:2\"' +
+          dash + '/></svg>';
+        return '<div class=\"glyph-opt\">' + svg + '<span>' + escape(item.label) + '</span></div>';
+      }
+    "))
   ),
 
   # ── Header ─────────────────────────────────────────────────────────────────
@@ -408,7 +471,10 @@ ui <- fluidPage(
         div(class = "panel-inner",
           h5("Point & Line Style"),
           fluidRow(
-            column(6, numericInput("pointstyle", "Pt Style (pch)", 21, 1, 25, 1)),
+            column(6, selectizeInput("pointstyle", "Pt Style (pch)",
+                                     choices = 0:25, selected = 21,
+                                     options = list(render = I(
+                                       "{ option: cprPchRender, item: cprPchRender }")))),
             column(6, numericInput("pointcex",   "Pt Magnif.",      1, 0.1, 5, 0.1))
           ),
           fluidRow(
@@ -416,7 +482,12 @@ ui <- fluidPage(
             column(6, textInput("bg",  "Pt Fill",  "gray"))
           ),
           fluidRow(
-            column(6, numericInput("lty",    "Line Style (lty)", 1, 1, 6, 1)),
+            column(6, selectizeInput("lty", "Line Style (lty)",
+                                     choices = c("solid" = 1, "dashed" = 2, "dotted" = 3,
+                                                 "dotdash" = 4, "longdash" = 5, "twodash" = 6),
+                                     selected = 1,
+                                     options = list(render = I(
+                                       "{ option: cprLtyRender, item: cprLtyRender }")))),
             column(6, numericInput("lwd",    "Line Width",       1, 0.5, 10, 0.5))
           ),
           fluidRow(
@@ -554,15 +625,27 @@ ui <- fluidPage(
 # ── 4. Server ──────────────────────────────────────────────────────────────────
 server <- function(input, output, session) {
 
+  # Gray out and strike through the x / y cells of excluded rows
+  EXCLUDED_ROW_RENDERER <- "
+    function(instance, td, row, col, prop, value, cellProperties) {
+      Handsontable.renderers.NumericRenderer.apply(this, arguments);
+      var excluded = instance.getDataAtCell(row, 2) === true;
+      td.style.color          = excluded ? '#a0a0a0' : '';
+      td.style.background     = excluded ? '#eeeeee' : '';
+      td.style.textDecoration = excluded ? 'line-through' : '';
+    }"
+
   INIT_ROWS <- 50
 
+  # Blank table rows; `exclude` = leave the row out of the analysis
+  blank_rows <- function(n) {
+    data.frame(x = rep(NA_real_, n), y = rep(NA_real_, n), exclude = rep(FALSE, n))
+  }
+
   rv <- reactiveValues(
-    df       = data.frame(x = rep(NA_real_, INIT_ROWS),
-                          y = rep(NA_real_, INIT_ROWS)),
-    result   = NULL,   # fit, band, ba, pp, stats from the last Graph run
-    pidx     = 1L,
-    stats    = "Click '\u25b6 Graph' to run the analysis.",
-    plot_run = 0L
+    df     = blank_rows(INIT_ROWS),
+    result = NULL,   # fit, band, ba, pp, stats, points from the last Graph run
+    pidx   = 1L
   )
 
   # ── rhandsontable ─────────────────────────────────────────────────────────
@@ -570,26 +653,39 @@ server <- function(input, output, session) {
     rhandsontable(
       rv$df,
       rowHeaders  = seq_len(nrow(rv$df)),
-      colHeaders  = c("x", "y"),
+      colHeaders  = c("x", "y", "exclude"),
       stretchH    = "all",
       height      = 488,
       contextMenu = TRUE,
       overflow    = "hidden"
     ) %>%
-      hot_col("x", type = "numeric", format = "0.[000]") %>%
-      hot_col("y", type = "numeric", format = "0.[000]")
+      hot_col("x", type = "numeric", format = "0.[000]", renderer = EXCLUDED_ROW_RENDERER) %>%
+      hot_col("y", type = "numeric", format = "0.[000]", renderer = EXCLUDED_ROW_RENDERER) %>%
+      hot_col("exclude", type = "checkbox", halign = "htCenter") %>%
+      hot_cols(colWidths = c(85, 85, 60))
   })
+
+  # Table contents as a data.frame. hot_to_r() flattens each row into one
+  # vector, so the checkbox column can come back as 1/0 or "TRUE"/"FALSE";
+  # coerce it back to logical (blank = not excluded).
+  read_table <- function() {
+    d <- hot_to_r(input$hot_table)
+    ex <- if (is.null(d$exclude)) FALSE else d$exclude
+    ex <- if (is.character(ex)) toupper(ex) == "TRUE" else as.logical(ex)
+    ex[is.na(ex)] <- FALSE
+    d$exclude <- rep_len(ex, nrow(d))
+    d
+  }
 
   # Sync table edits back to rv$df
   observe({
     req(input$hot_table)
-    rv$df <- hot_to_r(input$hot_table)
+    rv$df <- read_table()
   })
 
   # ── Clear ─────────────────────────────────────────────────────────────────
   observeEvent(input$btn_clear, {
-    rv$df <- data.frame(x = rep(NA_real_, INIT_ROWS),
-                        y = rep(NA_real_, INIT_ROWS))
+    rv$df <- blank_rows(INIT_ROWS)
   })
 
   # ── Paste via modal ───────────────────────────────────────────────────────
@@ -628,13 +724,8 @@ server <- function(input, output, session) {
     mat    <- do.call(rbind, parsed)
     new_df <- as.data.frame(mat, stringsAsFactors = FALSE)
     names(new_df) <- c("x", "y")
-
-    pad <- max(0L, INIT_ROWS - nrow(new_df))
-    if (pad > 0)
-      new_df <- rbind(new_df,
-                      data.frame(x = rep(NA_real_, pad),
-                                 y = rep(NA_real_, pad)))
-    rv$df <- new_df
+    new_df$exclude <- FALSE
+    rv$df <- pad_df(new_df)
   })
 
   # ── Sort / Swap ───────────────────────────────────────────────────────────
@@ -645,8 +736,7 @@ server <- function(input, output, session) {
 
   pad_df <- function(d) {
     pad <- max(0L, INIT_ROWS - nrow(d))
-    if (pad > 0)
-      d <- rbind(d, data.frame(x = rep(NA_real_, pad), y = rep(NA_real_, pad)))
+    if (pad > 0) d <- rbind(d, blank_rows(pad))
     d
   }
 
@@ -666,7 +756,7 @@ server <- function(input, output, session) {
   observeEvent(input$btn_graph, {
 
     # Sync last table edit
-    if (!is.null(input$hot_table)) rv$df <- hot_to_r(input$hot_table)
+    if (!is.null(input$hot_table)) rv$df <- read_table()
 
     # Remove any row where EITHER x or y is NA so that the row numbers
     # displayed in the handsontable exactly match the Row: N tooltip in plotly.
@@ -677,8 +767,9 @@ server <- function(input, output, session) {
     }
 
     dat <- rv$df
-    if (nrow(dat) < 3) {
-      showNotification("Please enter at least 3 complete (x, y) pairs.", type = "warning")
+    if (sum(!dat$exclude) < 3) {
+      showNotification("Please enter at least 3 complete (x, y) pairs that are not excluded.",
+                       type = "warning")
       return()
     }
 
@@ -752,7 +843,11 @@ server <- function(input, output, session) {
       diff_plot_units     = trimws(input$diff_plot_units)
     )
 
-    d <- data.frame(x = dat$x, y = dat$y, row = seq_len(nrow(dat)))
+    # All complete points; the analysis uses only those not excluded
+    pts  <- data.frame(x = dat$x, y = dat$y, row = seq_len(nrow(dat)),
+                       exclude = dat$exclude)
+    d    <- pts[!pts$exclude, c("x", "y", "row")]
+    excl <- pts$row[pts$exclude]
 
     res <- withProgress(message = "Running analysis…", value = 0.2, {
       tryCatch({
@@ -763,13 +858,19 @@ server <- function(input, output, session) {
           "Deming" = fit_deming(d, as.numeric(input$deming_ratio), weighting_flag)
         )
         incProgress(0.6, detail = "Difference plot…")
-        pp   <- fill_limits(pp, fit$data)
-        ba   <- fit_ba(d, input$diff_style == "abs")
-        list(fit   = fit,
-             band  = fit_band(fit, c(pp$xmin, pp$xmax)),
-             ba    = ba,
-             pp    = pp,
-             stats = sub("\n+$", "", paste0(stats_text(fit), ba_stats_text(ba))))
+        ba     <- fit_ba(d, input$diff_style == "abs")
+        # Static plots show included points only; the interactive plot's
+        # automatic limits also cover excluded points so they can be re-included
+        pp_int <- fill_limits(pp, pts)
+        pp     <- fill_limits(pp, fit$data)
+        list(fit      = fit,
+             band     = fit_band(fit, c(pp$xmin, pp$xmax)),
+             band_int = fit_band(fit, c(pp_int$xmin, pp_int$xmax)),
+             ba       = ba,
+             pp       = pp,
+             pp_int   = pp_int,
+             points   = pts,
+             stats    = sub("\n+$", "", paste0(stats_text(fit, excl), ba_stats_text(ba))))
       }, error = function(e) {
         showNotification(paste("Analysis error:", conditionMessage(e)),
                          type = "error", duration = 20)
@@ -778,14 +879,8 @@ server <- function(input, output, session) {
     })
     if (is.null(res)) return()
 
-    rv$result   <- res
-    rv$stats    <- res$stats
-    rv$pidx     <- 1L
-    rv$plot_run <- rv$plot_run + 1L
-
-    # Re-attach colour autocomplete datalists after conditionalPanel re-renders
-    session$sendCustomMessage("reattach_colors",
-                              list("col", "bg", "lincol", "conf_fill_col", "conf_col"))
+    rv$result <- res
+    rv$pidx   <- 1L
   })
 
   # ── Plot pages: 1 = regression, 2 = Bland-Altman ─────────────────────────
@@ -842,24 +937,62 @@ server <- function(input, output, session) {
   }, deleteFile = TRUE)
 
   # ── Interactive plotly widget (switches with prev/next) ──────────────────
+  # TRUE if the table still holds the points of the last Graph run in the
+  # same rows (so plot row numbers still point at the right table rows)
+  table_matches_result <- function(df, res) {
+    pts <- res$points
+    n   <- nrow(pts)
+    nrow(df) >= n && identical(df$x[seq_len(n)], pts$x) && identical(df$y[seq_len(n)], pts$y)
+  }
+
   output$interactive_plot <- renderPlotly({
     res <- rv$result
-    shiny::validate(need(!is.null(res), "Run the analysis to see the interactive plot here."))
-    if (rv$pidx == 1L) plotly_regression(res$fit, res$band, res$pp)
-    else               plotly_ba(res$ba, res$pp)
+    validate(need(!is.null(res), "Run the analysis to see the interactive plot here."))
+    # Show the table's current exclusions (right-clicks since Graph included)
+    # without re-rendering on every toggle
+    df       <- isolate(rv$df)
+    excluded <- if (table_matches_result(df, res)) df$exclude[seq_len(nrow(res$points))]
+                else res$points$exclude
+    if (rv$pidx == 1L) plotly_regression(res$fit, res$band_int, res$pp_int, res$points, excluded)
+    else               plotly_ba(res$ba, res$pp_int, res$points, excluded)
+  })
+
+  # ── Right-click exclusion from the interactive plot ──────────────────────
+  observeEvent(input$toggle_point, {
+    res <- rv$result
+    req(res)
+    if (!table_matches_result(rv$df, res)) {
+      showNotification("The table has changed since the last Graph \u2014 click \u25b6 Graph before excluding points.",
+                       type = "warning", duration = 6)
+      return()
+    }
+    row <- as.integer(input$toggle_point$row)
+    df  <- rv$df
+    df$exclude[row] <- isTRUE(input$toggle_point$excluded)
+    rv$df <- df
+  })
+
+  # Highlight the Graph button while the table differs from the last run
+  observe({
+    res <- rv$result
+    pending <- FALSE
+    if (!is.null(res)) {
+      df  <- rv$df
+      cur <- df[!is.na(df$x) & !is.na(df$y), c("x", "y", "exclude")]
+      rownames(cur) <- NULL
+      pending <- !identical(cur, res$points[, c("x", "y", "exclude")])
+    }
+    shinyjs::toggleClass("btn_graph", "btn-pending", condition = pending)
   })
 
   # ── Stats box ─────────────────────────────────────────────────────────────
   output$stats_box <- renderText({
-    rv$plot_run   # take dependency so it always refreshes with the plot
-    rv$stats
+    if (is.null(rv$result)) "Click '\u25b6 Graph' to run the analysis."
+    else rv$result$stats
   })
 
   # ── Downloads: drawn on demand in the currently selected format ──────────
-  current_format <- function() {
-    fmt <- input$plot_type
-    if (is.null(fmt) || !nzchar(fmt)) "jpg" else fmt
-  }
+  current_format <- function() input$plot_type
 
   output$dl_current_plot <- downloadHandler(
     filename = function() {

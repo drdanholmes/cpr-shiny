@@ -73,8 +73,7 @@ draw_regression <- function(fit, band, pp) {
 
 # ── Bland-Altman plot ─────────────────────────────────────────────────────────
 ba_axis_labels <- function(ba, pp) {
-  units <- if (is.null(pp$diff_plot_units) || is.na(pp$diff_plot_units)) ""
-           else trimws(pp$diff_plot_units)
+  units <- pp$diff_plot_units
   with_units <- function(lbl) if (nzchar(units)) paste0(lbl, " (", units, ")") else lbl
   list(x = with_units("Average of Measures"),
        y = if (ba$abs_diff) with_units("Difference of Measures")

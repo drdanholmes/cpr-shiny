@@ -1,1 +1,38 @@
-rsconnect/*
+# R session files
+.Rhistory
+.RData
+.Rapp.history
+.Ruserdata
+.Rproj.user/
+
+# renv (keep renv.lock, ignore the local library)
+renv/library/
+renv/local/
+renv/staging/
+
+# Shiny deployment (shinyapps.io / Posit Connect credentials and state)
+rsconnect/
+
+# Package/build output
+*.tar.gz
+*.Rcheck/
+
+# Plot and analysis output written while testing
+Rplots.pdf
+cpR_output_*.zip
+
+# Environment and secrets
+.env
+.Renviron
+
+# Editor and OS clutter
+.~lock.*#
+*~
+*.swp
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local test data
+test_data.csv

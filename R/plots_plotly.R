@@ -66,6 +66,7 @@ bw_layout <- function(p, title, xlab, ylab, xr, yr, base) {
     font          = list(color = "black"),
     plot_bgcolor  = "white", paper_bgcolor = "white",
     margin        = list(t = 45, r = 10, b = 45, l = 50),
+    hovermode     = "closest",
     hoverlabel    = list(bgcolor = "white", font = list(size = 12)))
 }
 
@@ -81,17 +82,66 @@ add_band <- function(p, x, lwr, upr, pp) {
                line = list(color = "transparent"))
 }
 
-add_points <- function(p, x, y, tip, row, pp) {
-  add_markers(p, x = x, y = y, text = tip, hoverinfo = "text",
-              customdata = row, marker = point_marker(pp))
+# ── Points and right-click exclusion ─────────────────────────────────────────
+EXCLUDED_COL  <- "rgba(215,48,39,1)"
+EXCLUDED_NOTE <- "<br><i>excluded</i>"
+
+# All points in one trace, styled per point; excluded ones are drawn as a red x.
+# customdata carries the table row number for the right-click handler.
+add_points <- function(p, x, y, tip, row, excluded, pp) {
+  inc <- point_marker(pp)
+  add_markers(p, x = x, y = y, hoverinfo = "text", customdata = row,
+              text = ifelse(excluded, paste0(tip, EXCLUDED_NOTE), tip),
+              marker = list(symbol = ifelse(excluded, "x-thin-open", inc$symbol),
+                            size   = inc$size,
+                            color  = ifelse(excluded, EXCLUDED_COL, inc$color),
+                            line   = list(color = ifelse(excluded, EXCLUDED_COL, inc$line$color),
+                                          width = max(2, inc$line$width))))
+}
+
+# Right-click on a point toggles its exclusion: the point is restyled at once
+# and input$toggle_point = {row, excluded} is sent to the server.
+TOGGLE_JS <- "
+function(el, x, data) {
+  var tips = [].concat(data.tips);
+  var excl = [].concat(data.excluded).map(Boolean);
+  var hover = null;
+  el.on('plotly_hover',   function(ev) { hover = ev.points[0]; });
+  el.on('plotly_unhover', function()   { hover = null; });
+  el.addEventListener('contextmenu', function(e) {
+    if (!hover || hover.customdata === undefined || hover.customdata === null) return;
+    e.preventDefault();
+    // Copy the point first: restyle fires plotly_unhover, which clears `hover`
+    var pt = hover, i = pt.pointNumber;
+    excl[i] = !excl[i];
+    var pick = function(a, b) { return excl.map(function(v) { return v ? b : a; }); };
+    Plotly.restyle(el, {
+      'marker.symbol':     [pick(data.inc.symbol, 'x-thin-open')],
+      'marker.color':      [pick(data.inc.color,  data.exc_col)],
+      'marker.line.color': [pick(data.inc.line,   data.exc_col)],
+      'text':              [excl.map(function(v, k) { return v ? tips[k] + data.note : tips[k]; })]
+    }, [pt.curveNumber]);
+    if (window.Shiny)
+      Shiny.setInputValue('toggle_point', {row: pt.customdata, excluded: excl[i]},
+                          {priority: 'event'});
+  });
+}"
+
+with_toggle <- function(p, tip, excluded, pp) {
+  inc <- point_marker(pp)
+  htmlwidgets::onRender(p, TOGGLE_JS, data = list(
+    tips = as.list(tip), excluded = as.list(excluded), note = EXCLUDED_NOTE,
+    exc_col = EXCLUDED_COL,
+    inc = list(symbol = inc$symbol, color = inc$color, line = inc$line$color)))
 }
 
 # ── Regression plot ───────────────────────────────────────────────────────────
-plotly_regression <- function(fit, band, pp) {
-  d   <- fit$data
-  tip <- paste0("Row: ", d$row,
-                "<br>x: ", round(d$x, 4),
-                "<br>y: ", round(d$y, 4))
+# pts: every complete data point (x, y, row); excluded: logical per point.
+# pp limits should cover all of pts so excluded points stay visible.
+plotly_regression <- function(fit, band, pp, pts, excluded) {
+  tip <- paste0("Row: ", pts$row,
+                "<br>x: ", round(pts$x, 4),
+                "<br>y: ", round(pts$y, 4))
   lwd <- pp$my_lwd * 0.5 * PX_PER_MM
   xr  <- expand5(c(pp$xmin, pp$xmax))
   yr  <- expand5(c(pp$ymin, pp$ymax))
@@ -106,8 +156,9 @@ plotly_regression <- function(fit, band, pp) {
   }
   p <- add_abline(p, fit$intercept, fit$slope, xr, pp$my_lincol, lwd, LTY_DASH[pp$my_lty])
   if (pp$plot_identity) p <- add_abline(p, 0, 1, xr, "red", lwd, "dash")
-  p <- add_points(p, d$x, d$y, tip, d$row, pp)
+  p <- add_points(p, pts$x, pts$y, tip, pts$row, excluded, pp)
 
+  d <- fit$data
   annot <- character(0)
   if (pp$plot_regression) annot <- c(annot, equation_string(fit$intercept, fit$slope))
   if (pp$plot_rsquared)   annot <- c(annot, paste0("R²=", round(cor(d$x, d$y)^2, 4)))
@@ -121,22 +172,29 @@ plotly_regression <- function(fit, band, pp) {
       showarrow = FALSE, bgcolor = "rgba(255,255,255,0.85)",
       bordercolor = "rgba(0,0,0,0.2)", borderwidth = 1, borderpad = 5,
       font = list(size = 13))))
-  p
+  with_toggle(p, tip, excluded, pp)
 }
 
 # ── Bland-Altman plot ─────────────────────────────────────────────────────────
-plotly_ba <- function(ba, pp) {
-  d   <- ba$data
-  tip <- paste0("Row: ",   d$row,
-                "<br>x: ",    round(d$x, 4),
-                "<br>y: ",    round(d$y, 4),
-                "<br>Avg: ",  round(ba$avg, 4),
-                "<br>Diff: ", round(ba$diff, 4))
+# Mean and limits come from `ba` (included points); every complete point in
+# pts is drawn, styled by `excluded`.
+plotly_ba <- function(ba, pp, pts, excluded) {
+  if (!ba$abs_diff) {   # x = y = 0 has no percent difference
+    keep <- !(pts$x == pts$y & pts$x == 0)
+    pts <- pts[keep, , drop = FALSE]; excluded <- excluded[keep]
+  }
+  avg  <- (pts$x + pts$y) / 2
+  dif  <- if (ba$abs_diff) pts$y - pts$x else (pts$y - pts$x) / (pts$y + pts$x) * 200
+  tip  <- paste0("Row: ",   pts$row,
+                 "<br>x: ",    round(pts$x, 4),
+                 "<br>y: ",    round(pts$y, 4),
+                 "<br>Avg: ",  round(avg, 4),
+                 "<br>Diff: ", round(dif, 4))
   lab <- ba_axis_labels(ba, pp)
   m   <- ba$mean_diff; s <- ba$sd_diff
   lwd <- pp$my_lwd * 0.5 * PX_PER_MM
-  xr  <- expand5(range(ba$avg))   # same as the ±5% padding used before
-  yr  <- expand5(c(pp$sdi_lower * s, pp$sdi_upper * s))
+  xr  <- expand5(range(avg))
+  yr  <- expand5(range(c(pp$sdi_lower * s, pp$sdi_upper * s), dif[excluded]))
   hl  <- function(p, y, col, width, dash = "solid")
     add_lines(p, x = xr, y = c(y, y), hoverinfo = "skip",
               line = list(color = col_rgba(col), width = width, dash = dash))
@@ -148,16 +206,17 @@ plotly_ba <- function(ba, pp) {
     for (yy in c(m + 1.96*s, m - 1.96*s)) p <- hl(p, yy, pp$conf_col, lwd * 1.4)
   p <- hl(p, m, pp$my_lincol, lwd)
   if (pp$plot_identity) p <- hl(p, 0, "red", lwd, "dash")
-  p <- add_points(p, ba$avg, ba$diff, tip, d$row, pp)
+  p <- add_points(p, avg, dif, tip, pts$row, excluded, pp)
 
   line_label <- function(y, text, col, above)
     list(x = xr[1] + 0.02 * diff(xr), y = y, text = text, showarrow = FALSE,
          xanchor = "left", yanchor = if (above) "bottom" else "top", align = "left",
          font = list(size = 11, color = col_rgba(col)))
 
-  bw_layout(p, "Difference Plot", lab$x, lab$y, xr, yr, pp$font_mult) %>%
+  p <- bw_layout(p, "Difference Plot", lab$x, lab$y, xr, yr, pp$font_mult) %>%
     layout(annotations = list(
       line_label(m + 1.96*s, paste0("+1.96 SD<br>", round(m + 1.96*s, 3)), pp$conf_col,  TRUE),
       line_label(m - 1.96*s, paste0("-1.96 SD<br>", round(m - 1.96*s, 3)), pp$conf_col,  FALSE),
       line_label(m,          paste0("Mean<br>",     round(m, 3)),          pp$my_lincol, TRUE)))
+  with_toggle(p, tip, excluded, pp)
 }
