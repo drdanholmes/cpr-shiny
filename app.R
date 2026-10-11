@@ -236,6 +236,15 @@ ui <- fluidPage(
         line-height: 1.55;
         box-shadow: inset 0 1px 4px rgba(0,0,0,.06);
       }
+      .stats-wrap { position: relative; }
+      .stats-copy {
+        position: absolute;
+        top: 6px;
+        right: 18px;
+        z-index: 2;
+        opacity: .7;
+      }
+      .stats-copy:hover { opacity: 1; }
 
       /* ── Confidence band sub-panel ─────────────────────────────────────── */
       .conf-sub {
@@ -403,6 +412,31 @@ ui <- fluidPage(
           '<line x1=\"1\" y1=\"5\" x2=\"43\" y2=\"5\" style=\"stroke:var(--sw-lincol, black);stroke-width:2\"' +
           dash + '/></svg>';
         return '<div class=\"glyph-opt\">' + svg + '<span>' + escape(item.label) + '</span></div>';
+      }
+
+      // Copy the statistical output to the clipboard; falls back to
+      // execCommand where the async clipboard API is unavailable (plain http)
+      function cprCopyStats(btn) {
+        var el = document.getElementById('stats_box');
+        var text = el ? el.innerText : '';
+        var done = function() {
+          var icon = btn.querySelector('i');
+          var orig = icon.className;
+          icon.className = 'fas fa-check';
+          btn.title = 'Copied!';
+          setTimeout(function() { icon.className = orig; btn.title = 'Copy to clipboard'; }, 1500);
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).then(done);
+        } else {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          try { if (document.execCommand('copy')) done(); } finally { document.body.removeChild(ta); }
+        }
       }
     "))
   ),
@@ -610,8 +644,13 @@ ui <- fluidPage(
 
         div(class = "panel-inner",
           h5("Statistical Output"),
-          div(class = "stats-box",
-            verbatimTextOutput("stats_box")
+          div(class = "stats-wrap",
+            tags$button(type = "button", class = "btn btn-default btn-xs stats-copy",
+                        title = "Copy to clipboard",
+                        onclick = "cprCopyStats(this)", icon("copy")),
+            div(class = "stats-box",
+              verbatimTextOutput("stats_box")
+            )
           )
         )
 
