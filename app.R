@@ -261,7 +261,6 @@ ui <- fluidPage(
         border-color: #8e4708;
         box-shadow: 0 0 0 3px rgba(230,126,34,.35);
       }
-      .col-left .btn-success.btn-pending::after { content: '  \\2022 changes pending'; font-weight: 400; }
 
       /* ── pch / lty pickers ─────────────────────────────────────────────── */
       .glyph-opt { display: flex; align-items: center; gap: 6px; }
@@ -1070,7 +1069,8 @@ server <- function(input, output, session) {
     rv$df <- df
   })
 
-  # Highlight the Graph button while the table differs from the last run
+  # Highlight the Graph button (orange, relabelled "Re-graph") while the table
+  # differs from the last run
   observe({
     res <- rv$result
     pending <- FALSE
@@ -1081,6 +1081,8 @@ server <- function(input, output, session) {
       pending <- !identical(cur, res$points[, c("x", "y", "exclude")])
     }
     shinyjs::toggleClass("btn_graph", "btn-pending", condition = pending)
+    updateActionButton(session, "btn_graph",
+                       label = if (pending) "▶  Re-graph" else "▶  Graph")
   })
 
   # ── Stats box ─────────────────────────────────────────────────────────────
