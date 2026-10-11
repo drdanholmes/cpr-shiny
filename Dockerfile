@@ -4,9 +4,9 @@ FROM rocker/shiny:4.4.2
 
 # ── System libraries ──────────────────────────────────────────────────────────
 # libcurl / libssl  : needed by httr / curl (plotly dependency)
-# libxml2           : needed by xml2 (htmlwidgets dependency)
+# libxml2           : needed by xml2 (plotly/htmlwidgets dependency)
 # libfontconfig / libfreetype : needed by Cairo (PDF/PS output)
-# libharfbuzz / libfribidi   : needed by textshaping (ggplot2 text)
+# libharfbuzz / libfribidi   : needed by textshaping (plotly's ggplot2 dependency)
 # libtiff / libpng / libjpeg : raster image devices
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libcurl4-openssl-dev \
@@ -26,8 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # compiler is a base package — no need to install.
 RUN Rscript -e "\
   pkgs <- c( \
-    'shiny', 'rhandsontable', 'shinyjs', 'jsonlite', 'base64enc', \
-    'ggplot2', 'plotly', 'htmlwidgets', 'boot', 'mcr' \
+    'shiny', 'rhandsontable', 'shinyjs', 'jsonlite', \
+    'plotly', 'boot', 'mcr' \
   ); \
   install.packages(pkgs, repos='https://cloud.r-project.org', \
                    Ncpus=parallel::detectCores()); \

@@ -13,23 +13,15 @@ originally a PyQt4 desktop application by Dr. Daniel T. Holmes, MD.
 
 ## R Package Dependencies
 
-### Shiny app (`app.R`)
 | Package | Purpose |
 |---|---|
 | `shiny` | Web framework |
 | `rhandsontable` | Interactive data-entry grid |
 | `shinyjs` | JS helpers |
 | `jsonlite` | Colour list serialisation |
-| `base64enc` | Static plot preview encoding |
-
-### R scripts (`Rdata/`)
-| Package | Purpose |
-|---|---|
-| `ggplot2` | Plot construction |
-| `plotly` | Interactive widget rendering |
-| `htmlwidgets` | Self-contained HTML widget export |
-| `boot` | Bootstrap CIs (Passing-Bablok, Deming) |
-| `compiler` | JIT compilation of PB inner loop (base R — no install needed) |
+| `plotly` | Interactive plots |
+| `mcr` | Passing-Bablok estimates and analytical CIs |
+| `boot` | Bootstrap CIs and confidence bands (Passing-Bablok, Deming) |
 
 All packages are auto-installed on first run if missing.
 
@@ -87,19 +79,19 @@ rsconnect::deployApp("path/to/cpr-shiny")
 
 ```
 cpr-shiny/
-├── app.R                     <- Shiny UI + server
-├── Dockerfile                <- Docker build definition
-├── README.md
-└── Rdata/
-    ├── linear_regression.R   <- Least Squares regression
-    ├── PB_regression.R       <- Passing-Bablok regression
-    ├── Deming_regression.R   <- Deming regression
-    └── BA_plot.R             <- Bland-Altman difference plot
+├── app.R                 <- Shiny UI + server
+├── R/                    <- sourced automatically by Shiny at startup
+│   ├── analysis.R        <- LS / Passing-Bablok / Deming / Bland-Altman calculations and stats text
+│   ├── plots_base.R      <- static plots (preview and downloads)
+│   └── plots_plotly.R    <- interactive plots
+├── Dockerfile            <- Docker build definition
+└── README.md
 ```
 
-Each R script is invoked as an isolated `Rscript` subprocess — environment
-variables from the Shiny session are not inherited, which ensures reproducible
-behaviour on multi-user servers.
+All analysis runs inside the Shiny process: packages load once at startup,
+results are kept in memory, and download files are drawn only when requested.
+Bootstraps use a fixed seed, so identical inputs give identical results, and
+run across CPU cores where the platform supports forking (Linux, macOS).
 
 ## License
 

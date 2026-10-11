@@ -50,7 +50,8 @@ fit_ls <- function(d, weighted = FALSE) {
 }
 
 # ── Passing-Bablok ────────────────────────────────────────────────────────────
-# Point estimates and CIs via mcr (CLSI EP09-validated). mcr does not expose
+# Point estimates and analytical CIs (Passing & Bablok 1983) via mcr
+# (CLSI EP09-validated). mcr does not expose
 # per-replicate (a, b) pairs, so the pointwise confidence band comes from our
 # own bootstrap of pb_coef().
 pb_coef <- function(data, indices) {
@@ -74,8 +75,8 @@ pb_coef <- function(data, indices) {
 }
 
 fit_pb <- function(d, alpha = 0.05, band = TRUE, R = 500) {
-  fit  <- mcreg(d$x, d$y, method.reg = "PaBa", alpha = alpha,
-                mref.name = "x", mtest.name = "y")
+  fit  <- mcreg(d$x, d$y, method.reg = "PaBa", method.ci = "analytical",
+                alpha = alpha, mref.name = "x", mtest.name = "y")
   para <- fit@para
   boot_coef <- NULL
   if (band) {
