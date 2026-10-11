@@ -763,19 +763,10 @@ server <- function(input, output, session) {
     d
   }
 
-  # Keep one empty row at the bottom to type into. Done here rather than with
-  # Handsontable's minSpareRows, which counts the FALSE checkbox as data and
-  # so keeps adding rows.
-  ensure_spare <- function(d) {
-    n <- nrow(d)
-    if (n == 0 || !is.na(d$x[n]) || !is.na(d$y[n])) d <- rbind(d, blank_rows(1))
-    d
-  }
-
   # Sync table edits back to rv$df
   observe({
     req(input$hot_table)
-    rv$df <- ensure_spare(read_table())
+    rv$df <- read_table()
   })
 
   # ── Clear ─────────────────────────────────────────────────────────────────
@@ -868,13 +859,12 @@ server <- function(input, output, session) {
 
     # Remove any row where EITHER x or y is NA so that the row numbers
     # displayed in the handsontable exactly match the Row: N tooltip in plotly.
+    # Blank rows are added back after the data so the table stays full height.
     complete_mask <- !is.na(rv$df$x) & !is.na(rv$df$y)
-    if (any(!complete_mask)) {
-      rv$df <- rv$df[complete_mask, , drop = FALSE]
-      rownames(rv$df) <- NULL   # reset to 1, 2, 3, ... to match plotly
-    }
+    dat <- rv$df[complete_mask, , drop = FALSE]
+    rownames(dat) <- NULL   # reset to 1, 2, 3, ... to match plotly
+    rv$df <- pad_df(dat)
 
-    dat <- rv$df
     if (sum(!dat$exclude) < 3) {
       showNotification("Please enter at least 3 complete (x, y) pairs that are not excluded.",
                        type = "warning")
