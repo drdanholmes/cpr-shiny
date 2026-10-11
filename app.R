@@ -56,6 +56,13 @@ ui <- fluidPage(
       .cpr-header .byline{ margin-left: auto; font-size: 11px; opacity: .5; }
 
       /* ── Column containers ─────────────────────────────────────────────── */
+      /* Give the data-entry column some of the middle column's width so the
+         table's exclude column fits on laptop screens (was 25% / 25% / 50%) */
+      @media (min-width: 768px) {
+        .cpr-col-left { width: 28%; }
+        .cpr-col-mid  { width: 22%; }
+      }
+
       /* Each column gets one outer card that fills the column */
       .col-card {
         border-radius: 10px;
@@ -117,7 +124,11 @@ ui <- fluidPage(
         padding: 9px 10px 10px;
         margin-bottom: 9px;
         backdrop-filter: blur(2px);
+        position: relative;
       }
+      /* backdrop-filter gives each panel its own stacking layer, so an open
+         dropdown would sit under the next panel; lift the focused panel */
+      .panel-inner:focus-within { z-index: 10; }
       .col-left  .panel-inner { border: 1px solid rgba(92,157,192,.35); }
       .col-mid   .panel-inner { border: 1px solid rgba(160,127,214,.35); }
       .col-right .panel-inner { border: 1px solid rgba(136,136,160,.35); }
@@ -268,6 +279,10 @@ ui <- fluidPage(
       .selectize-input .glyph-opt { display: inline-flex; vertical-align: middle; }
       .selectize-input.has-items input { position: absolute; width: 4px !important; }
       .compact .selectize-input { min-height: 28px; padding: 3px 7px; font-size: 12.5px; }
+      /* Narrow middle column: less side padding so values aren't clipped */
+      .compact .form-control { padding-left: 6px; padding-right: 6px; }
+      .compact .row { margin-left: -4px; margin-right: -4px; }
+      .compact .row > [class*='col-'] { padding-left: 4px; padding-right: 4px; }
       .compact .selectize-dropdown .option { padding: 2px 7px; }
 
       /* ── Color picker widgets ───────────────────────────────────────────── */
@@ -407,8 +422,8 @@ ui <- fluidPage(
 
       function cprLtyRender(item, escape) {
         var dash = CPR_LTY[item.value] ? ' stroke-dasharray=\"' + CPR_LTY[item.value] + '\"' : '';
-        var svg = '<svg width=\"44\" height=\"10\" viewBox=\"0 0 44 10\">' +
-          '<line x1=\"1\" y1=\"5\" x2=\"43\" y2=\"5\" style=\"stroke:var(--sw-lincol, black);stroke-width:2\"' +
+        var svg = '<svg width=\"32\" height=\"10\" viewBox=\"0 0 32 10\">' +
+          '<line x1=\"1\" y1=\"5\" x2=\"31\" y2=\"5\" style=\"stroke:var(--sw-lincol, black);stroke-width:2\"' +
           dash + '/></svg>';
         return '<div class=\"glyph-opt\">' + svg + '<span>' + escape(item.label) + '</span></div>';
       }
@@ -498,7 +513,7 @@ ui <- fluidPage(
     # ────────────────────────────────────────────────────────────────────────
     # LEFT COLUMN: data-manipulation buttons + rhandsontable
     # ────────────────────────────────────────────────────────────────────────
-    column(3,
+    column(3, class = "cpr-col-left",
       div(class = "col-card col-left",
         h5("Data Entry  (x / y)"),
         fluidRow(
@@ -540,7 +555,7 @@ ui <- fluidPage(
     # ────────────────────────────────────────────────────────────────────────
     # MIDDLE COLUMN: all graphical / analysis parameters
     # ────────────────────────────────────────────────────────────────────────
-    column(3,
+    column(3, class = "cpr-col-mid",
       div(class = "col-card col-mid compact",
 
         # ── Point & Line style ────────────────────────────────────────────
@@ -559,9 +574,7 @@ ui <- fluidPage(
           ),
           fluidRow(
             column(6, selectizeInput("lty", "Line Style (lty)",
-                                     choices = c("solid" = 1, "dashed" = 2, "dotted" = 3,
-                                                 "dotdash" = 4, "longdash" = 5, "twodash" = 6),
-                                     selected = 1,
+                                     choices = 1:6, selected = 1,
                                      options = list(render = I(
                                        "{ option: cprLtyRender, item: cprLtyRender }")))),
             column(6, numericInput("lwd",    "Line Width",       1, 0.5, 10, 0.5))
