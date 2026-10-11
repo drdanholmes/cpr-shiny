@@ -497,15 +497,11 @@ ui <- fluidPage(
   fluidRow(
 
     # ────────────────────────────────────────────────────────────────────────
-    # LEFT COLUMN: rhandsontable + data-manipulation buttons
+    # LEFT COLUMN: data-manipulation buttons + rhandsontable
     # ────────────────────────────────────────────────────────────────────────
     column(3,
       div(class = "col-card col-left",
         h5("Data Entry  (x / y)"),
-        div(class = "hot-wrap",
-          rHandsontableOutput("hot_table", height = "490px")
-        ),
-        br(),
         fluidRow(
           column(6,
             actionButton("btn_clear",  "Clear",     icon("trash"),
@@ -535,6 +531,9 @@ ui <- fluidPage(
             actionButton("btn_graph",  "\u25b6  Graph",
                          class = "btn btn-success btn-sm btn-block")
           )
+        ),
+        div(class = "hot-wrap", style = "margin-top:10px;",
+          rHandsontableOutput("hot_table", height = "490px")
         )
       )
     ),
